@@ -145,10 +145,10 @@ final class AppModel: ObservableObject {
     var canExportTranscript: Bool { hasContent && (phase == .idle || phase == .paused) }
     var ready: Bool { speechReady && translationReady && store != nil && !demoMode }
     var pendingCount: Int {
-        current?.segments.filter { !$0.isCollectingParagraph &&
+        current?.segments.filter { $0.recognitionWarning == nil && !$0.isCollectingParagraph &&
             ($0.translationState == .pending || $0.translationState == .translating) }.count ?? 0
     }
-    var failedCount: Int { current?.segments.filter { $0.translationState == .failed }.count ?? 0 }
+    var failedCount: Int { current?.segments.filter { $0.recognitionWarning == nil && $0.translationState == .failed }.count ?? 0 }
     var hasContent: Bool { !(current?.segments.isEmpty ?? true) }
     var statusLabel: String {
         switch phase {
@@ -356,7 +356,7 @@ final class AppModel: ObservableObject {
     }
 
     private func canTranslate(_ job: TranslationJob, item: TranscriptSegment) -> Bool {
-        guard item.translationState != .edited else { return false }
+        guard item.recognitionWarning == nil, item.translationState != .edited else { return false }
         if job.isPreview {
             return item.isCollectingParagraph && item.english.hasPrefix(job.text)
         }

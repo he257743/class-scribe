@@ -92,7 +92,7 @@ struct ContextReviewWindow: Sendable {
                      subject: String, model: ContextModel) -> Self? {
         let latestEnd = lecture.segments.last?.end ?? 0
         let rows = Array(lecture.segments.filter {
-            $0.end >= latestEnd - 90 && !$0.english.isEmpty && $0.english.count <= 1500
+            $0.recognitionWarning == nil && $0.end >= latestEnd - 90 && !$0.english.isEmpty && $0.english.count <= 1500
         }.suffix(4))
         guard rows.count >= 2,
               rows.dropLast().contains(where: eligible) else { return nil }
@@ -105,7 +105,7 @@ struct ContextReviewWindow: Sendable {
     }
 
     private static func eligible(_ row: TranscriptSegment) -> Bool {
-        !row.isCollectingParagraph && !row.edited && row.translationState == .complete &&
+        row.recognitionWarning == nil && !row.isCollectingParagraph && !row.edited && row.translationState == .complete &&
             !row.hasPreviewTranslation && !row.chinese.isEmpty &&
             (row.translatedSource == nil || row.translatedSource == row.english)
     }

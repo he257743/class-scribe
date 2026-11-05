@@ -406,7 +406,7 @@ struct ContentView: View {
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
             Text("课堂术语提示").font(.subheadline.weight(.medium))
-            Text("用逗号或换行分隔，也可写 mutex=互斥锁。下次开始收音时生效。")
+            Text("用逗号或换行分隔，也可写 mutex=互斥锁。苹果识别可用作提示；千问模式用于后文校对。")
                 .font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $model.contextualWords).font(.system(size: 12)).frame(height: 95)
                 .padding(6).background(surface, in: RoundedRectangle(cornerRadius: 7)).disabled(model.busy)
@@ -482,27 +482,38 @@ private struct TranscriptRow: View {
                 Button(action: edit) { Image(systemName: "pencil").font(.system(size: 11)) }
                     .buttonStyle(.borderless).disabled(!editingEnabled).help("核对并编辑本段")
             }
-            HStack(alignment: .top, spacing: 24) {
-                Text(item.presentedEnglish).font(.system(size: 17)).lineSpacing(5)
-                    .foregroundStyle(item.isFinal ? ink : ink.opacity(0.72))
-                    .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                VStack(alignment: .leading, spacing: 7) {
-                    if !item.presentedChinese.isEmpty {
-                        Text(item.presentedChinese).font(.system(size: 17)).lineSpacing(5).textSelection(.enabled)
-                    } else {
-                        Text(item.isCollectingParagraph ? (livePreviewEnabled ? "正在生成实时中文预览…" : "正在收集这一段，停顿后显示整段中文…") :
-                            (item.translationState == .failed ? "翻译未完成，可点击下方重试" : "等待本机翻译…"))
-                            .font(.system(size: 13)).foregroundStyle(.secondary)
-                    }
-                    if item.activeContextRevision != nil {
-                        Text("上下文校订 · 原始识别可在下方查看").font(.caption2).foregroundStyle(accent)
-                    } else if item.hasPreviewTranslation {
-                        Text(item.isCollectingParagraph ? "中文预览 · 随上下文更新" : "中文预览 · 等待整段定稿")
-                            .font(.caption2).foregroundStyle(accent)
-                    } else if item.translationState == .translating && !item.chinese.isEmpty {
-                        Text("译文更新中").font(.caption2).foregroundStyle(.secondary)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+            if let warning = item.recognitionWarning {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout).foregroundStyle(.orange)
+                DisclosureGroup("查看异常识别原文（已保留）") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(item.english)
+                        if !item.chinese.isEmpty { Text("原始机器译文：" + item.chinese) }
+                    }.font(.caption).textSelection(.enabled).padding(.top, 6)
+                }.font(.caption)
+            } else {
+                HStack(alignment: .top, spacing: 24) {
+                    Text(item.presentedEnglish).font(.system(size: 17)).lineSpacing(5)
+                        .foregroundStyle(item.isFinal ? ink : ink.opacity(0.72))
+                        .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 7) {
+                        if !item.presentedChinese.isEmpty {
+                            Text(item.presentedChinese).font(.system(size: 17)).lineSpacing(5).textSelection(.enabled)
+                        } else {
+                            Text(item.isCollectingParagraph ? (livePreviewEnabled ? "正在生成实时中文预览…" : "正在收集这一段，停顿后显示整段中文…") :
+                                (item.translationState == .failed ? "翻译未完成，可点击下方重试" : "等待本机翻译…"))
+                                .font(.system(size: 13)).foregroundStyle(.secondary)
+                        }
+                        if item.activeContextRevision != nil {
+                            Text("上下文校订 · 原始识别可在下方查看").font(.caption2).foregroundStyle(accent)
+                        } else if item.hasPreviewTranslation {
+                            Text(item.isCollectingParagraph ? "中文预览 · 随上下文更新" : "中文预览 · 等待整段定稿")
+                                .font(.caption2).foregroundStyle(accent)
+                        } else if item.translationState == .translating && !item.chinese.isEmpty {
+                            Text("译文更新中").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             if let revision = item.contextRevisions?.last {
                 DisclosureGroup(item.activeContextRevision == nil ? "查看校订记录" : "查看原始识别与校订依据") {

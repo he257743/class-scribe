@@ -1,6 +1,6 @@
 {
   "checked_on": "2026-11-05",
-  "app_version": "1.6.0",
+  "app_version": "1.6.1",
   "environment": {
     "architecture": "arm64",
     "macos": "26.4.1",
@@ -16,9 +16,10 @@
     "paragraphs": 30,
     "live_preview": 30,
     "pause": 27,
-    "total": 190,
+    "total": 205,
     "context_review": 47,
-    "speech_backend": 19
+    "speech_backend": 21,
+    "prompt_echo": 13
   },
   "regression_data": "temporary fixtures; injected recording backend; no microphone",
   "native_preview": "pass; scripted ASR text through actual TranslationSession and application queue",
@@ -33,8 +34,8 @@
   "context_fixtures_used_during_development": true,
   "independent_context_accuracy_benchmark": false,
   "context_service_owned_start_and_shutdown": "pass; repeated real-model fixtures after stopping separately started test server; no owned process remained",
-  "python_audio_scheduler_tests": 7,
-  "combined_logic_checks": 197,
+  "python_audio_scheduler_tests": 12,
+  "combined_logic_checks": 217,
   "native_backend_comparison": "pass; same synthetic paced audio through real Apple/Qwen ASR, Apple Translation, app scheduler and save/reload; see backend-comparison.json",
   "private_lecture_comparison": {
     "status": "pass",
@@ -44,6 +45,10 @@
     "classroom_accuracy_established": false,
     "audio_and_transcript_published": false
   },
-  "qwen_asr_cold_setup": "pass; downloaded and SHA-verified official Python, installed public PyPI dependencies, reused SHA-verified local model weights; offline ASR and normal shutdown passed",
-  "qwen_asr_real_pause_resume": "pass; synthetic file capture, real Qwen worker, no microphone"
+  "qwen_asr_cold_setup": "historical 1.6.0 pass; official Python download and SHA verification, public PyPI dependencies, reused SHA-verified weights, offline ASR and normal shutdown; 1.6.1 WebRTC addition verified through normal upgrade",
+  "qwen_asr_real_pause_resume": "pass; synthetic file capture, real Qwen worker, no microphone",
+  "prompt_echo_and_non_speech_regression": "pass; original failure reproduced with saved private audio; fixed worker passed same audio, digital silence, white noise, fan hum and clear English; see prompt-echo-regression.json",
+  "qwen_asr_runtime_upgrade": "pass; normal preparation entry installed WebRTC dependency, reused SHA-verified weights and marked runtime_revision 2",
+  "native_prompt_echo_ui": "pass; real SwiftUI offscreen render using synthetic content; warning and retained-original disclosure visually checked",
+  "installed_app_copies": "pass; 1.6.1 build 8 in Applications and external-drive output; identical signed bundles; original records and audio unchanged"
 }

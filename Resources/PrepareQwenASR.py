@@ -25,6 +25,13 @@ def cancelled(signum, frame):
         os.killpg(child.pid, signal.SIGTERM)
     raise SystemExit(130)
 
+def existing_model_is_valid(model):
+    required = ['config.json', 'tokenizer_config.json', 'preprocessor_config.json', 'model.safetensors']
+    if not all((model / name).is_file() for name in required):
+        return False
+    with (model / 'model.safetensors').open('rb') as weights:
+        return hashlib.file_digest(weights, 'sha256').hexdigest() == MODEL_SHA256
+
 def main():
     global child
     parser = argparse.ArgumentParser()
@@ -57,7 +64,7 @@ def main():
         for name in MODEL_FILES:
             if (source / name).is_file() and (source / name).resolve() != (model / name).resolve():
                 shutil.copy2(source / name, model / name)
-    else:
+    elif not existing_model_is_valid(model):
         os.environ.pop('HF_HUB_OFFLINE', None)
         os.environ.pop('TRANSFORMERS_OFFLINE', None)
         from huggingface_hub import snapshot_download
@@ -71,6 +78,7 @@ def main():
     emit('正在校验识别组件和模型', 0.9)
     import mlx.core as mx
     import mlx_audio
+    import webrtcvad
     import transformers
     if not mx.metal.is_available():
         raise RuntimeError('当前运行环境未提供 Apple GPU 加速。')
@@ -81,7 +89,7 @@ def main():
     if digest.hexdigest() != MODEL_SHA256:
         raise RuntimeError('模型校验失败，未标记为就绪。请重新准备。')
     report = {'model_repo': MODEL_REPO, 'revision': MODEL_REVISION, 'weights_sha256': digest.hexdigest(),
-              'transformers': transformers.__version__, 'python': sys.version.split()[0], 'ready': True}
+              'transformers': transformers.__version__, 'python': sys.version.split()[0], 'ready': True, 'runtime_revision': 2}
     temporary = root / 'ready.json.tmp'
     temporary.write_text(json.dumps(report, indent=2) + '\n')
     temporary.replace(root / 'ready.json')

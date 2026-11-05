@@ -22,6 +22,13 @@ struct RecognitionPart: Codable, Equatable {
     var confidence: Double?
 }
 
+enum RecognitionSanity {
+    static func isPromptEcho(_ text: String) -> Bool {
+        let text = text.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return text.contains("transcribe the english lecture faithfully") && text.contains("technical vocabulary:")
+    }
+}
+
 struct TranscriptSegment: Identifiable, Codable, Equatable {
     var id = UUID()
     var start: Double
@@ -39,17 +46,21 @@ struct TranscriptSegment: Identifiable, Codable, Equatable {
     var translationIsPreview: Bool?
     var contextRevisions: [ContextRevision]?
 
+    var recognitionWarning: String? {
+        guard !edited, translationState != .edited, RecognitionSanity.isPromptEcho(english) else { return nil }
+        return "疑似识别器回显术语提示，不作为课堂内容。请回听原音核对。"
+    }
     var activeContextRevision: ContextRevision? {
-        guard !edited, translationState != .edited,
+        guard recognitionWarning == nil, !edited, translationState != .edited,
               let last = contextRevisions?.last, last.sourceEnglish == english else { return nil }
         return last
     }
-    var presentedEnglish: String { activeContextRevision?.english ?? english }
-    var presentedChinese: String { activeContextRevision?.chinese ?? chinese }
+    var presentedEnglish: String { recognitionWarning == nil ? (activeContextRevision?.english ?? english) : "〔识别异常，请回听原音〕" }
+    var presentedChinese: String { recognitionWarning == nil ? (activeContextRevision?.chinese ?? chinese) : "" }
 
     @discardableResult
     mutating func applyContextRevision(_ revision: ContextRevision, expectedPrevious: ContextRevision?) -> Bool {
-        guard !edited, translationState == .complete, !isCollectingParagraph, !hasPreviewTranslation,
+        guard recognitionWarning == nil, !edited, translationState == .complete, !isCollectingParagraph, !hasPreviewTranslation,
               translatedSource == nil || translatedSource == english,
               english == revision.sourceEnglish, activeContextRevision == expectedPrevious else { return false }
         if let last = activeContextRevision, last.english == revision.english && last.chinese == revision.chinese { return false }
@@ -64,7 +75,7 @@ struct TranscriptSegment: Identifiable, Codable, Equatable {
 
     @discardableResult
     mutating func applyTranslation(_ translated: String, forSource source: String) -> Bool {
-        guard english == source, translationState != .edited else { return false }
+        guard recognitionWarning == nil, english == source, translationState != .edited else { return false }
         chinese = translated
         translationState = .complete
         translatedSource = source
@@ -74,7 +85,7 @@ struct TranscriptSegment: Identifiable, Codable, Equatable {
 
     @discardableResult
     mutating func applyPreviewTranslation(_ translated: String, forSource source: String) -> Bool {
-        guard isCollectingParagraph, translationState != .edited, !source.isEmpty,
+        guard recognitionWarning == nil, isCollectingParagraph, translationState != .edited, !source.isEmpty,
               english.hasPrefix(source) else { return false }
         if let newer = translatedSource, hasPreviewTranslation, newer.count > source.count,
            english.hasPrefix(newer) { return false }
@@ -85,7 +96,7 @@ struct TranscriptSegment: Identifiable, Codable, Equatable {
         return true
     }
 
-    var needsReview: Bool { !isFinal || (confidence.map { $0 < 0.65 } ?? false) }
+    var needsReview: Bool { recognitionWarning != nil || !isFinal || (confidence.map { $0 < 0.65 } ?? false) }
     var timeLabel: String { "\(Self.time(start)) – \(Self.time(end))" }
     static func time(_ seconds: Double) -> String {
         let n = max(0, Int(seconds.rounded(.down)))
@@ -339,6 +350,10 @@ enum TranscriptExport {
         for item in lecture.segments {
             lines += ["[\(item.timeLabel)]\(item.isFinal ? "" : " 〔未定稿〕")\(item.needsReview ? " 〔建议回听〕" : "")",
                 "英文：\(item.presentedEnglish)", "中文：\(translationText(item))"]
+            if let warning = item.recognitionWarning {
+                lines += ["异常说明：" + warning, "异常识别原文（仅供核查）：" + item.english,
+                    "原始译文（仅供核查）：" + item.chinese]
+            }
             if let revision = item.activeContextRevision {
                 lines += ["原始识别：" + revision.sourceEnglish, "初始译文：" + revision.sourceChinese,
                     "校订依据：" + revision.reason, "后文原句：" + revision.evidence]
@@ -349,6 +364,7 @@ enum TranscriptExport {
     }
 
     static func translationText(_ item: TranscriptSegment) -> String {
+        if let warning = item.recognitionWarning { return "〔识别异常〕" + warning }
         if let revision = item.activeContextRevision { return "〔上下文校订〕" + revision.chinese }
         if !item.chinese.isEmpty {
             return (item.hasPreviewTranslation ? "〔中文预览，待整段定稿〕" : "") + item.chinese
@@ -401,6 +417,11 @@ enum TranscriptExport {
             body += paragraph(item.timeLabel + (item.isFinal ? "" : " 〔未定稿〕") + (item.needsReview ? " 〔建议回听〕" : ""))
             body += paragraph("英文：" + item.presentedEnglish)
             body += paragraph("中文：" + translationText(item))
+            if let warning = item.recognitionWarning {
+                body += paragraph("异常说明：" + warning)
+                body += paragraph("异常识别原文（仅供核查）：" + item.english)
+                body += paragraph("原始译文（仅供核查）：" + item.chinese)
+            }
             if let revision = item.activeContextRevision {
                 body += paragraph("原始识别：" + revision.sourceEnglish)
                 if !revision.sourceChinese.isEmpty { body += paragraph("初始译文：" + revision.sourceChinese) }

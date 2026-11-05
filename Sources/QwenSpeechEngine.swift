@@ -17,9 +17,11 @@ struct QwenInstallation: Sendable {
     var python: URL { root.appendingPathComponent("runtime/bin/python3.12") }
     var model: URL { root.appendingPathComponent("model", isDirectory: true) }
     var ready: Bool {
-        FileManager.default.isExecutableFile(atPath: python.path) &&
-        FileManager.default.fileExists(atPath: model.appendingPathComponent("model.safetensors").path) &&
-        FileManager.default.fileExists(atPath: root.appendingPathComponent("ready.json").path)
+        guard FileManager.default.isExecutableFile(atPath: python.path),
+              FileManager.default.fileExists(atPath: model.appendingPathComponent("model.safetensors").path),
+              let data = try? Data(contentsOf: root.appendingPathComponent("ready.json")),
+              let marker = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return (marker["runtime_revision"] as? Int ?? 0) >= 2
     }
     var environment: [String: String] {
         var env = ProcessInfo.processInfo.environment
@@ -188,6 +190,9 @@ actor QwenSpeechEngine: SpeechRecording {
                               start.isFinite, end.isFinite, start >= 0, end > start,
                               end - start <= 15, !text.isEmpty, text.count <= 6000 else {
                             throw ClassScribeError.message("千问识别返回了无效片段，已保留原音。")
+                        }
+                        guard !RecognitionSanity.isPromptEcho(text) else {
+                            throw ClassScribeError.message("识别器回显了内部提示，已停止输出异常文字，请回听原音。")
                         }
                         await receive(.init(start: start + offset, end: end + offset, text: text,
                             isFinal: event.final == true, confidence: nil))

@@ -4,3 +4,4 @@ transformers==5.19.0
 huggingface-hub==1.33.0
 numpy==2.5.3
 tokenizers==0.23.2
+webrtcvad-wheels==2.0.14.post1

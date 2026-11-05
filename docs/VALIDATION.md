@@ -1,8 +1,8 @@
 # 验证范围
 
-以下记录基于应用 1.6.0，记录本地检查的范围和复现方法。具体结果见 `validation/summary.json`。
+以下记录基于应用 1.6.1，记录本地检查的范围和复现方法。具体结果见 `validation/summary.json`。
 
-2026 年 11 月 5 日，本机重新构建、签名与 ZIP 检查通过；七组 Swift 回归检查共 **190 项通过**：转录与导出 16、删除 21、段落 30、实时预览 30、暂停恢复 27、上下文校订 47、识别后端 19。另有 7 项 Python 音频调度检查通过。脚本额外执行了 DOCX 导出检查。
+2026 年 11 月 5 日，本机重新构建、签名与 ZIP 检查通过；八组 Swift 回归检查共 **205 项通过**：转录与导出 16、删除 21、段落 30、实时预览 30、暂停恢复 27、上下文校订 47、识别后端 21、提示回显保护 13。另有 12 项 Python 音频调度与语音检测检查通过，合计 **217 项**。脚本额外执行了 DOCX 导出检查。
 
 同日，Apple 两项可选原生管线也已通过。对应报告为 `validation/native-live-preview-test.json` 和 `validation/native-paragraph-test.json`。所有输入均为脚本化文字或本机合成英语，不是私人课堂录音。
 
@@ -20,6 +20,7 @@
 | 暂停 | `Tests/PauseTests.swift` | 模拟收音停止、排除暂停间隔、恢复衔接、权限与启动失败、退出等待 |
 | 后文校对 | `Tests/ContextReviewTests.swift` | 局部替换、后文引用、原文保留、人工修改、过期回复、旧记录兼容与导出 |
 | 识别引擎与通信 | `Tests/SpeechBackendTests.swift`、`Tests/QwenWorkerTests.py` | 后端选择、组件准备取消、缺失恢复、匿名音频管道、过载停止、样本保留与末段收尾 |
+| 异常回显 | `Tests/PromptEchoTests.swift` | 历史异常标记、原文保留、翻译与校对隔离、导出标签和人工确认 |
 | ZIP | `python3 Tools/VerifyPackage.py dist/听课译记.zip` | 归档结构、UTF-8 文件名、图标和可执行权限 |
 | 原生预览（可选） | `Tests/NativeLivePreviewTest.swift` | 脚本化英文识别文本经过真实 Apple 翻译与应用调度流程 |
 | 原生音频管线（可选） | `Tests/NativeParagraphTest.swift` | 本机合成英语文件经过真实识别、应用段落队列、翻译与保存恢复 |
@@ -36,7 +37,7 @@
 
 ## 双识别引擎的实际管线
 
-`validation/backend-comparison.json` 记录同一段合成英语按墙钟节奏回放到 `AudioCapturing`，经过真实苹果或千问识别、真实 Apple Translation、应用预览队列和保存恢复的结果。两个引擎均成功完成。单一开发样例的词错误率为 Apple 2.27%、Qwen3-ASR 0%；首次中文分别约 2.15 / 4.67 秒。启动时间另计，词错误率不评价标点、断句和中文质量；不能推广为真实课堂准确率。
+`validation/backend-comparison.json` 记录同一段合成英语按墙钟节奏回放到 `AudioCapturing`，经过真实苹果或千问识别、真实 Apple Translation、应用预览队列和保存恢复的结果。两个引擎均成功完成。单一开发样例的词错误率为 Apple 2.27%、Qwen3-ASR 2.27%；首次中文分别约 2.22 / 4.33 秒。启动时间另计，词错误率不评价标点、断句和中文质量；不能推广为真实课堂准确率。
 
 额外使用同一段 45 秒已有课堂录音进行本机检查，两种引擎均完成识别、翻译与保存恢复。没有人工标准稿，因此不计算课堂词错误率。课堂音频和转录文字未进入公开仓库。
 
@@ -50,6 +51,23 @@
 zsh Tests/run-backend-comparison.sh
 python3 Tools/SummarizeBackendComparison.py build validation/backend-comparison.json
 zsh Tests/run-qwen-lifecycle.sh
+```
+
+## 提示回显与底噪回归
+
+1.6.0 可能把 ASR 指令与完整词表当成课堂内容输出。1.6.1 移除识别提示注入，在推理前使用 WebRTC VAD 筛查整段窗口，同时保留完整原音。历史异常的标记由读取时计算，不改写用户记录。
+
+在本机同一段 12 秒问题录音上，旧版产生 24 次包含回显的增量结果更新（不是 24 段独立发言）；新版未出现回显。6 秒数字静音、低幅白噪声和风扇低频声均没有生成字幕；正常英语仍可识别并结束。结果见 `validation/prompt-echo-regression.json`。私人音频、识别文字和视频未公开。
+
+上述是已知故障的回归，不证明所有背景声都能被排除；轻声、短语或远场语音仍可能漏判。组件升级正常路径已在现有安装上验证：补充 WebRTC 依赖并更新就绪标记，复用已校验的识别权重。
+
+可选复现入口：
+
+```sh
+# 先运行 Tests/run-qwen-lifecycle.sh 生成本机合成英语文件
+python3 Tests/run-qwen-no-speech.py
+# 可用自己的 16kHz 单声道 PCM16 WAV 追加故障样例
+python3 Tests/run-qwen-no-speech.py --problem-audio /path/to/example.wav
 ```
 
 ## GitHub Actions

@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'Resources'))
-from QwenASRWorker import Segmenter, JobQueue, AudioJob, RATE
+from QwenASRWorker import Segmenter, JobQueue, AudioJob, RATE, SpeechGate, looks_like_prompt_echo, model_events
 
 class SegmenterTests(unittest.TestCase):
     def test_irregular_packet_sizes_preserve_every_sample_once(self):
@@ -62,5 +62,49 @@ class SegmenterTests(unittest.TestCase):
         with self.assertRaises(BufferError):queue.push(AudioJob(4, 5, b'', True))
         queue.close(RuntimeError('overloaded'))
         with self.assertRaisesRegex(RuntimeError, 'overloaded'):queue.take()
+
+class RecognitionGuardTests(unittest.TestCase):
+    def test_asr_never_receives_an_instruction_or_glossary_prompt(self):
+        class Model:
+            def stream_transcribe(self, audio, **kwargs):
+                self.options = kwargs
+                return iter(['recognized speech'])
+        model = Model()
+        self.assertEqual(list(model_events(model, [0.0])), ['recognized speech'])
+        self.assertIsNone(model.options['system_prompt'])
+        self.assertNotIn('Technical vocabulary', str(model.options))
+
+    def test_known_prompt_echo_is_distinguished_from_normal_technical_speech(self):
+        self.assertTrue(looks_like_prompt_echo('Transcribe the English lecture faithfully. Technical vocabulary: mutex, thread.'))
+        self.assertFalse(looks_like_prompt_echo('A mutex protects the shared resource.'))
+        self.assertFalse(looks_like_prompt_echo('The technical vocabulary includes mutex and thread.'))
+        self.assertFalse(looks_like_prompt_echo('mutex, mutual exclusion, critical section, semaphore, deadlock, thread, process, scheduler'))
+
+    def test_transient_noise_bursts_do_not_count_as_continuous_speech(self):
+        class VAD:
+            def __init__(self, mode):self.index = 0
+            def is_speech(self, frame, rate):
+                self.index += 1
+                return self.index % 8 < 4
+        pcm = array.array('f', [0.01] * (16000)).tobytes()
+        self.assertFalse(SpeechGate(VAD).contains_speech(pcm))
+
+    def test_detected_speech_preserves_whole_windows_and_pcm_format(self):
+        seen = []
+        class VAD:
+            def __init__(self, mode):pass
+            def is_speech(self, frame, rate):
+                seen.append((len(frame), rate)); return True
+        pcm = array.array('f', [0.01] * 4001).tobytes()
+        original = pcm
+        self.assertTrue(SpeechGate(VAD).contains_speech(pcm))
+        self.assertEqual(pcm, original)
+        self.assertTrue(all(size == 640 and rate == 16000 for size, rate in seen))
+
+    def test_invalid_audio_samples_are_rejected(self):
+        class VAD:
+            def __init__(self, mode):pass
+        with self.assertRaises(ValueError):
+            SpeechGate(VAD).contains_speech(array.array('f', [float('nan')]).tobytes())
 
 if __name__ == '__main__':unittest.main()

@@ -124,6 +124,46 @@ class JobQueue:
                 return job
             return None
 
+def looks_like_prompt_echo(text):
+    normalized = ' '.join(text.lower().split())
+    return 'transcribe the english lecture faithfully' in normalized and 'technical vocabulary:' in normalized
+
+class SpeechGate:
+    """Screen whole windows for voice, while retaining original audio elsewhere.
+
+    A fresh detector per snapshot avoids replaying the same preview into a VAD's
+    adaptive state. No samples are removed from a window that passes the gate.
+    """
+    def __init__(self, factory):
+        self.factory = factory
+
+    def voiced_frames(self, pcm):
+        samples = array.array('f'); samples.frombytes(pcm)
+        if any(not math.isfinite(value) for value in samples):
+            raise ValueError('音频包含无效采样，已停止，请检查输入设备。')
+        quantized = array.array('h', (round(max(-1, min(1, value)) * 32767) for value in samples)).tobytes()
+        detector = self.factory(2)
+        voiced = 0
+        longest = run = 0
+        size = FRAME * 2
+        for offset in range(0, len(quantized), size):
+            frame = quantized[offset:offset + size].ljust(size, b'\0')
+            yes = detector.is_speech(frame, RATE)
+            voiced += yes
+            run = run + 1 if yes else 0
+            longest = max(longest, run)
+        return voiced, longest
+
+    def contains_speech(self, pcm):
+        voiced, longest = self.voiced_frames(pcm)
+        return voiced >= 8 and longest >= 5
+
+def model_events(model, audio):
+    # ASR context is not an instruction-following chat prompt. Passing the
+    # instruction and full glossary caused 1.6.0 to transcribe its own prompt.
+    return model.stream_transcribe(audio, language='English', max_tokens=384,
+        temperature=0.0, chunk_duration=15, verbose=False, system_prompt=None)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', required=True)
@@ -143,6 +183,7 @@ def main():
         import contextlib
         import resource
         import numpy as np
+        import webrtcvad
         import mlx.core as mx
         from mlx_audio.stt import load
         mx.set_cache_limit(128 * 1024 * 1024)
@@ -166,11 +207,11 @@ def main():
             except BaseException as error:
                 jobs.close(error)
         threading.Thread(target=ingest, daemon=True).start()
-        prompt = 'Transcribe the English lecture faithfully. Technical vocabulary: ' + ', '.join(terms) if terms else None
+        gate = SpeechGate(webrtcvad.Vad)
         while (job := jobs.take()) is not None:
-            # Skip only practically digital silence, not a voice-activity guess.
-            # Faint/noisy material remains eligible and must be reviewed by ear.
-            if Segmenter.energy(job.pcm) < 0.00001:
+            # Energy alone classified ordinary microphone noise as speech.
+            # The capture file remains intact even when this window is skipped.
+            if Segmenter.energy(job.pcm) < 0.00001 or not gate.contains_speech(job.pcm):
                 continue
             began = time.monotonic()
             text = ''
@@ -178,9 +219,7 @@ def main():
             first = None
             tokens = 0
             with contextlib.redirect_stdout(sys.stderr):
-                for event in model.stream_transcribe(np.frombuffer(job.pcm, dtype='<f4').copy(),
-                        language='English', max_tokens=384, temperature=0.0,
-                        chunk_duration=15, verbose=False, system_prompt=prompt):
+                for event in model_events(model, np.frombuffer(job.pcm, dtype='<f4').copy()):
                     if jobs.problem:
                         raise jobs.problem
                     if event.text:
@@ -190,6 +229,8 @@ def main():
                             first = time.monotonic() - began
                         if len(text) > 6000:
                             raise ValueError('识别结果异常过长，已停止并保留原音。')
+                        if looks_like_prompt_echo(text):
+                            raise ValueError('检测到识别器回显内部提示，已停止输出异常文字，请保留原音回听。')
                         now = time.monotonic()
                         if now - last_emit >= 0.2 and text.strip():
                             emit(kind='result', start=job.start / RATE, end=job.end / RATE,

@@ -22,3 +22,5 @@
 - **Python**：[CPython](https://www.python.org/psf/license/) 与 [python-build-standalone](https://github.com/astral-sh/python-build-standalone)。安装器固定使用 20261026 发行的 Apple Silicon Python 3.12.16 归档，并核对官方 SHA-256。Python 及其附带组件保留各自的许可。
 
 运行组件与模型均在用户准备时单独安装到 Mac 的应用支持目录，不包含在源码或应用 ZIP 中。音频在匿名管道中传递给应用自己的本机进程；推理关闭 Hugging Face 自动下载和遥测，不启用云端 ASR。
+
+- **语音活动检测**：[webrtcvad-wheels](https://github.com/daanzu/py-webrtcvad-wheels) 2.0.14.post1，许可见上游仓库及其附带 WebRTC 许可；安装包保留许可文件。该组件在本机筛查语音，不上传音频。

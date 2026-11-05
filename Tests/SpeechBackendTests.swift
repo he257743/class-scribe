@@ -35,6 +35,16 @@ final class MissingQwenFixture: SpeechRecording {
         let suite = "ClassScribe.BackendTests.\(UUID())"; let prefs = UserDefaults(suiteName: suite)!
         prefs.set(false, forKey: "contextEnabled")
         defer { prefs.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+        let legacy = QwenInstallation(root: root.appendingPathComponent("legacy-runtime"))
+        try FileManager.default.createDirectory(at: legacy.python.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: legacy.model, withIntermediateDirectories: true)
+        try Data().write(to: legacy.python)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: legacy.python.path)
+        try Data().write(to: legacy.model.appendingPathComponent("model.safetensors"))
+        try Data("{\"ready\":true}".utf8).write(to: legacy.root.appendingPathComponent("ready.json"))
+        check(!legacy.ready, "old ASR components require the speech-detection upgrade")
+        try Data("{\"ready\":true,\"runtime_revision\":2}".utf8).write(to: legacy.root.appendingPathComponent("ready.json"))
+        check(legacy.ready, "successful speech-detection preparation enables the upgraded component revision")
         let setup = SetupFixture()
         let model = AppModel(storageRoot: root.appendingPathComponent("records"), preferences: prefs, qwenAssets: setup)
         check(model.speechBackend == .apple, "existing installations retain Apple as the default recognizer")
