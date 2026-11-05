@@ -8,6 +8,8 @@ mkdir -p "$TASK_APP/Contents/MacOS" "$TASK_APP/Contents/Resources" "$TASK_CACHE"
 xcrun swiftc -parse-as-library -swift-version 5 -O -module-cache-path "$TASK_CACHE" \
     -target arm64-apple-macos26.0 "$TASK_ROOT"/Sources/*.swift \
     -o "$TASK_APP/Contents/MacOS/ClassScribe"
+cp "$TASK_ROOT/Resources/QwenASRWorker.py" "$TASK_ROOT/Resources/PrepareQwenASR.py" \
+    "$TASK_ROOT/Resources/qwen-asr-requirements.txt" "$TASK_APP/Contents/Resources/"
 cp "$TASK_ROOT/Info.plist" "$TASK_APP/Contents/Info.plist"
 if [[ -f "$TASK_ROOT/Assets/AppIcon.icns" ]]; then
     cp "$TASK_ROOT/Assets/AppIcon.icns" "$TASK_APP/Contents/Resources/AppIcon.icns"

@@ -19,6 +19,8 @@ with ZipFile(path) as archive:
     assert (executable.external_attr >> 16) & stat.S_IXUSR, "Executable permission lost"
     archive.getinfo("听课译记.app/Contents/Resources/AppIcon.icns")
     info = plistlib.loads(archive.read("听课译记.app/Contents/Info.plist"))
+    for resource in ["QwenASRWorker.py", "PrepareQwenASR.py", "qwen-asr-requirements.txt"]:
+        archive.getinfo("听课译记.app/Contents/Resources/" + resource)
     assert info["CFBundleExecutable"] == "ClassScribe"
     assert info["LSMinimumSystemVersion"] == "26.0"
 print(f"PASS: UTF-8 ZIP, app resources, executable permissions, version {info['CFBundleShortVersionString']}")

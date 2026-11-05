@@ -1,8 +1,8 @@
 # 验证范围
 
-以下记录基于应用 1.5.0，记录本地检查的范围和复现方法。具体结果见 `validation/summary.json`。
+以下记录基于应用 1.6.0，记录本地检查的范围和复现方法。具体结果见 `validation/summary.json`。
 
-2026 年 11 月 5 日，本机重新构建、签名与 ZIP 检查通过；六组回归检查共 **171 项通过**：转录与导出 16、删除 21、段落 30、实时预览 30、暂停恢复 27、上下文校订 47。脚本额外执行了 DOCX 导出检查。
+2026 年 11 月 5 日，本机重新构建、签名与 ZIP 检查通过；七组 Swift 回归检查共 **190 项通过**：转录与导出 16、删除 21、段落 30、实时预览 30、暂停恢复 27、上下文校订 47、识别后端 19。另有 7 项 Python 音频调度检查通过。脚本额外执行了 DOCX 导出检查。
 
 同日，Apple 两项可选原生管线也已通过。对应报告为 `validation/native-live-preview-test.json` 和 `validation/native-paragraph-test.json`。所有输入均为脚本化文字或本机合成英语，不是私人课堂录音。
 
@@ -19,6 +19,7 @@
 | 预览 | `Tests/LivePreviewTests.swift` | 节流、请求合并、原文修订、定稿优先、取消及迟到回复保护 |
 | 暂停 | `Tests/PauseTests.swift` | 模拟收音停止、排除暂停间隔、恢复衔接、权限与启动失败、退出等待 |
 | 后文校对 | `Tests/ContextReviewTests.swift` | 局部替换、后文引用、原文保留、人工修改、过期回复、旧记录兼容与导出 |
+| 识别引擎与通信 | `Tests/SpeechBackendTests.swift`、`Tests/QwenWorkerTests.py` | 后端选择、组件准备取消、缺失恢复、匿名音频管道、过载停止、样本保留与末段收尾 |
 | ZIP | `python3 Tools/VerifyPackage.py dist/听课译记.zip` | 归档结构、UTF-8 文件名、图标和可执行权限 |
 | 原生预览（可选） | `Tests/NativeLivePreviewTest.swift` | 脚本化英文识别文本经过真实 Apple 翻译与应用调度流程 |
 | 原生音频管线（可选） | `Tests/NativeParagraphTest.swift` | 本机合成英语文件经过真实识别、应用段落队列、翻译与保存恢复 |
@@ -32,6 +33,24 @@
 原生预览报告中的时间范围是“识别文字输入到中文写入模型状态”，不包含麦克风、音频采集和语音识别，也不等于用户屏幕上实际完成绘制的时间。它只能帮助验证预览流程，不能作为课堂端到端延迟宣传。
 
 上下文校对报告中的耗时从提交合成识别文字窗口开始，到校订通过验证为止。此次有判断任务的开发样例约为 4.1–5.3 秒（无候选的两个保留样例不调用模型）；应用调度与保存样例约 5.2 秒。这不包含获取后文所需的等待、麦克风、语音识别或屏幕绘制，不能当作语音到中文的端到端延迟，也不能承诺其他机器或负载下相同耗时。
+
+## 双识别引擎的实际管线
+
+`validation/backend-comparison.json` 记录同一段合成英语按墙钟节奏回放到 `AudioCapturing`，经过真实苹果或千问识别、真实 Apple Translation、应用预览队列和保存恢复的结果。两个引擎均成功完成。单一开发样例的词错误率为 Apple 2.27%、Qwen3-ASR 0%；首次中文分别约 2.15 / 4.67 秒。启动时间另计，词错误率不评价标点、断句和中文质量；不能推广为真实课堂准确率。
+
+额外使用同一段 45 秒已有课堂录音进行本机检查，两种引擎均完成识别、翻译与保存恢复。没有人工标准稿，因此不计算课堂词错误率。课堂音频和转录文字未进入公开仓库。
+
+`Tests/run-qwen-lifecycle.sh` 使用真实千问进程验证停止、暂停后继续、排除暂停时间、末段定稿及保存恢复。独立 Python 首次安装流程也已验证：下载并核验官方 Python，从公开 PyPI 安装依赖，复用本机已校验权重后完成离线识别与正常退出。没有重复下载 1.6GB 权重来测试网络模型下载。
+
+资源报告分别记录宿主进程 RSS、千问工作进程 RSS 和 Metal 分配峰值。苹果识别/翻译系统服务的完整内存未测，不能将进程 RSS 当作总内存，更不能直接将 RSS 与共享内存中的 Metal 分配相加。
+
+可复现命令：
+
+```sh
+zsh Tests/run-backend-comparison.sh
+python3 Tools/SummarizeBackendComparison.py build validation/backend-comparison.json
+zsh Tests/run-qwen-lifecycle.sh
+```
 
 ## GitHub Actions
 
@@ -60,7 +79,7 @@ python3 Tools/VerifyPackage.py dist/听课译记.zip
 zsh Tests/run-native.sh
 ```
 
-原生语言资产由 macOS 管理，可能受系统支持范围、语言包安装状态和当前机器环境影响。CI 只执行构建、逻辑回归与打包检查，不自动下载语言包或启动麦克风。
+原生语言资产由 macOS 管理，可能受系统支持范围、语言包安装状态和当前机器环境影响。CI 只执行构建、Swift / Python 逻辑回归与打包检查，不自动下载语言包或启动麦克风。
 
 已额外准备 Qwen3 较大模型后，可运行：
 

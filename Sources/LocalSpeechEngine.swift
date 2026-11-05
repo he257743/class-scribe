@@ -6,9 +6,11 @@ import CoreMedia
 enum ClassScribeError: LocalizedError {
     case message(String)
     case speechAssetsUnavailable
+    case qwenAssetsUnavailable
     var errorDescription: String? {
         switch self {
         case .message(let value): return value
+        case .qwenAssetsUnavailable: return "请先在设置中准备千问识别组件。"
         case .speechAssetsUnavailable: return "请先点击“准备语言包”，安装英语识别包。"
         }
     }
@@ -56,7 +58,14 @@ enum SpeechAssets {
     }
 }
 
-private final class MicrophoneCapture: @unchecked Sendable {
+protocol AudioCapturing: AnyObject {
+    func start(format: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation,
+               audioURL: URL?, meter: @escaping @Sendable (Double) -> Void,
+               failure: @escaping @Sendable (String) -> Void) throws
+    func stop() async
+}
+
+final class MicrophoneCapture: AudioCapturing, @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let queue = DispatchQueue(label: "local.classscribe.audio", qos: .userInitiated)
     private let lock = NSLock()
@@ -201,7 +210,8 @@ protocol SpeechRecording: AnyObject {
 }
 
 final class LocalSpeechEngine: SpeechRecording, @unchecked Sendable {
-    private let capture = MicrophoneCapture()
+    private let capture: any AudioCapturing
+    init(capture: any AudioCapturing = MicrophoneCapture()) { self.capture = capture }
     private var analyzer: SpeechAnalyzer?
     private var resultsTask: Task<Void, Never>?
     private var inputTask: Task<Void, Never>?

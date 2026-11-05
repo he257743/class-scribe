@@ -1,0 +1,6 @@
+mlx-audio[stt]==0.5.8
+mlx==0.32.3
+transformers==5.19.0
+huggingface-hub==1.33.0
+numpy==2.5.3
+tokenizers==0.23.2

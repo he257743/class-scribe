@@ -32,6 +32,13 @@ final class AppModel: ObservableObject {
         }
     }
     @Published var level: Double = 0
+    @Published var speechBackend: SpeechBackend {
+        didSet {
+            preferences.set(speechBackend.rawValue, forKey: "speechBackend")
+            speechReady = false
+            Task { await refreshSpeechAvailability() }
+        }
+    }
     @Published var speechReady = false
     @Published var translationReady = false
     @Published var speechPreparing = false
@@ -98,7 +105,9 @@ final class AppModel: ObservableObject {
     private let contextInterval: TimeInterval
 
     private var engine: SpeechRecording?
-    private let engineFactory: () -> SpeechRecording
+    private let engineFactory: (() -> SpeechRecording)?
+    private let qwenAssets: any QwenPreparing
+    private var speechPreparationTask: Task<Void, Never>?
     private let microphoneAccess: (() async -> Bool)?
     private let recordingNow: () -> Date
     private var pausedLectureID: UUID?
@@ -143,22 +152,23 @@ final class AppModel: ObservableObject {
     var hasContent: Bool { !(current?.segments.isEmpty ?? true) }
     var statusLabel: String {
         switch phase {
-        case .starting: return pausedLectureID == nil ? "正在开启麦克风" : "正在继续听课"
+        case .starting: return speechBackend == .qwen ? "正在加载千问识别" : (pausedLectureID == nil ? "正在开启麦克风" : "正在继续听课")
         case .listening: return level < 0.08 ? "正在听 · 等待发言" : "正在听课"
         case .pausing: return "正在暂停 · 保存末段文字"
         case .paused: return "已暂停 · 麦克风已停止"
         case .stopping: return "正在收尾 · 保留末段文字"
-        case .idle: return demoMode ? "演示模式" : (ready ? "已就绪" : "需要准备语言包")
+        case .idle: return demoMode ? "演示模式" : (ready ? "已就绪" : "需要准备识别与翻译组件")
         }
     }
 
     init(demoMode: Bool = false, storageRoot: URL? = nil,
          preferences: UserDefaults = .standard,
          previewInterval: TimeInterval = 1.5, previewInitialDelay: TimeInterval = 0.6,
-         engineFactory: @escaping () -> SpeechRecording = { LocalSpeechEngine() },
+         engineFactory: (() -> SpeechRecording)? = nil,
          microphoneAccess: (() async -> Bool)? = nil, recordingNow: @escaping () -> Date = Date.init,
          trashAction: @escaping LectureStore.TrashAction = LectureStore.systemTrash,
-         contextService: any ContextReviewing = LocalContextService(), contextInterval: TimeInterval = 8) {
+         contextService: any ContextReviewing = LocalContextService(), contextInterval: TimeInterval = 8,
+         qwenAssets: any QwenPreparing = QwenASRAssets()) {
         self.demoMode = demoMode
         self.trashAction = trashAction
         self.preferences = preferences
@@ -172,6 +182,8 @@ final class AppModel: ObservableObject {
         self.courseDomain = CourseDomain(rawValue: preferences.string(forKey: "courseDomain") ?? "") ?? .computerScience
         self.courseSubject = preferences.string(forKey: "courseSubject") ?? ""
         self.engineFactory = engineFactory
+        self.qwenAssets = qwenAssets
+        self.speechBackend = SpeechBackend(rawValue: preferences.string(forKey: "speechBackend") ?? "") ?? .apple
         self.microphoneAccess = microphoneAccess
         self.recordingNow = recordingNow
         self.previewInterval = max(0.01, previewInterval)
@@ -226,10 +238,7 @@ final class AppModel: ObservableObject {
 
     func refreshAvailability() async {
         guard !demoMode else { return }
-        do {
-            speechReady = try await SpeechAssets.status() == .installed
-            speechStatus = speechReady ? "英语语音包已就绪" : "英语语音包需要下载"
-        } catch { speechStatus = error.localizedDescription }
+        await refreshSpeechAvailability()
         let status = await LanguageAvailability().status(from: Locale.Language(identifier: "en"),
             to: Locale.Language(identifier: "zh-Hans"))
         switch status {
@@ -243,28 +252,57 @@ final class AppModel: ObservableObject {
         await refreshContextAvailability()
     }
 
+    func refreshSpeechAvailability() async {
+        guard !demoMode, !speechPreparing else { return }
+        let selected = speechBackend
+        do {
+            let ready = selected == .apple ? try await SpeechAssets.status() == .installed : await qwenAssets.available()
+            guard speechBackend == selected, !speechPreparing else { return }
+            speechReady = ready
+            speechStatus = selected == .apple ? (ready ? "英语语音包已就绪" : "英语语音包需要下载") :
+                (ready ? "千问识别组件已就绪" : "千问识别组件需要准备")
+        } catch { if speechBackend == selected { speechReady = false; speechStatus = error.localizedDescription } }
+    }
+
     func prepareLanguages() {
         guard !demoMode, !busy, !preparing else { return }
         errorMessage = nil
         if !translationReady { translationPreparing = true; configureTranslation() }
         if !speechReady {
-            speechPreparing = true; speechStatus = "正在准备英语语音包"
-            Task {
+            let selected = speechBackend
+            speechPreparing = true; speechProgress = 0
+            speechStatus = selected == .apple ? "正在准备英语语音包" : "正在准备千问识别组件"
+            speechPreparationTask = Task {
                 do {
-                    try await SpeechAssets.install { [weak self] fraction in
-                        await self?.setSpeechProgress(fraction)
+                    if selected == .apple {
+                        try await SpeechAssets.install { [weak self] fraction in await self?.setSpeechProgress(fraction) }
+                    } else {
+                        try await qwenAssets.prepare { [weak self] fraction, status in
+                            await self?.setSpeechProgress(fraction, status: status)
+                        }
                     }
-                    speechReady = true; speechStatus = "英语语音包已就绪"
+                    guard !Task.isCancelled else { throw CancellationError() }
+                    if speechBackend == selected {
+                        speechReady = true
+                        speechStatus = selected == .apple ? "英语语音包已就绪" : "千问识别组件已就绪"
+                    }
                 } catch {
-                    speechStatus = "英语语音包准备失败"
-                    errorMessage = "英语语音包未能准备完成：\(error.localizedDescription)"
+                    if speechBackend == selected {
+                        speechReady = false
+                        speechStatus = Task.isCancelled ? "识别组件准备已取消" : "识别组件准备失败"
+                        if !Task.isCancelled { errorMessage = "本机识别未准备完成：\(error.localizedDescription)" }
+                    }
                 }
-                speechPreparing = false
+                speechPreparing = false; speechPreparationTask = nil
             }
         }
     }
+    func cancelSpeechPreparation() { speechPreparationTask?.cancel() }
 
-    private func setSpeechProgress(_ fraction: Double) { speechProgress = fraction }
+    private func setSpeechProgress(_ fraction: Double, status: String? = nil) {
+        speechProgress = fraction
+        if let status { speechStatus = status }
+    }
 
     private func configureTranslation() {
         translationEpoch = UUID()
@@ -371,6 +409,12 @@ final class AppModel: ObservableObject {
         return true
     }
 
+    func makeSpeechEngine() -> any SpeechRecording {
+        if let engineFactory { return engineFactory() }
+        if speechBackend == .qwen { return QwenSpeechEngine() }
+        return LocalSpeechEngine()
+    }
+
     func start() async {
         guard phase == .idle || phase == .paused, !demoMode, deletionCandidate == nil,
               let lecture = current, let store else { return }
@@ -378,7 +422,7 @@ final class AppModel: ObservableObject {
         guard !resuming || pausedLectureID == lecture.id else {
             errorMessage = "请先结束已暂停的课堂，再切换到另一条记录。"; return
         }
-        guard ready else { errorMessage = "请先点击“准备语言包”。语音包和翻译包就绪后即可开始。"; return }
+        guard ready else { errorMessage = "请先准备所选识别引擎和中英翻译包。"; return }
         phase = .starting; errorMessage = nil; startupFailure = nil
         let allowed: Bool
         if let microphoneAccess { allowed = await microphoneAccess() }
@@ -399,7 +443,7 @@ final class AppModel: ObservableObject {
         let filename = "\(lectureID)-\(UUID()).caf"
         activeAudioFilename = keepAudio ? filename : nil
         let audioURL = keepAudio ? store.recordings.appendingPathComponent(filename) : nil
-        let engine = engineFactory(); self.engine = engine
+        let engine = makeSpeechEngine(); self.engine = engine
         let words = CourseGlossary.terms(domain: courseDomain, custom: contextualWords).map(\.english)
         do {
             try await engine.start(audioURL: audioURL, contextualWords: Array(words), offset: offset,
@@ -430,6 +474,8 @@ final class AppModel: ObservableObject {
             phase = resuming ? .paused : .idle
             if case ClassScribeError.speechAssetsUnavailable = error {
                 speechReady = false; speechStatus = "英语语音包需要重新准备"
+            } else if case ClassScribeError.qwenAssetsUnavailable = error {
+                speechReady = false; speechStatus = "千问识别组件需要重新准备"
             }
             errorMessage = "无法开始听课：\(error.localizedDescription)"
         }
@@ -765,6 +811,8 @@ final class AppModel: ObservableObject {
             await withCheckedContinuation { transitionWaiters.append($0) }
         }
         if phase == .listening || phase == .paused { await stop() }
+        speechPreparationTask?.cancel()
+        await speechPreparationTask?.value
         contextPreparationTask?.cancel()
         await contextPreparationTask?.value
         cancelContextReview()

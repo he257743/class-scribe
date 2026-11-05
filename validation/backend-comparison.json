@@ -1,0 +1,76 @@
+{
+  "sample": "one fixed synthetic English development sample, Samantha voice, 150 words/min",
+  "reference": "A mutex protects a shared resource. Mutual exclusion allows only one thread to enter a critical section at a time. A semaphore can allow several threads to access a limited number of resources. A deadlock occurs when processes wait for each other. Virtual memory uses page tables to map virtual addresses to physical memory. A page fault occurs when a required page is not in memory. In a computer network, a TCP port identifies a service. A router forwards packets between subnets. The cache stores frequently used data.",
+  "runs": [
+    {
+      "audio_seconds": 34.8834375,
+      "backend": "apple",
+      "chinese": "互斥保护共享资源，相互排斥一次只允许一个线程进入关键部分，一个分线器可以允许多个线程访问有限数量的资源，当进程相互等待时，会发生死锁。 虚拟内存使用页面表将虚拟地址映射到物理内存。 当所需的页面不在内存中，在计算机网络中，TCP端口标识服务时，就会发生页面故障。 路由器在子网之间转发数据包，现金存储经常使用数据。",
+      "context_review_enabled": false,
+      "english": "A mutex protects a shared resource, mutual exclusion allows only one thread to enter a critical section at a time, a semaphore can allow several threads to access a limited number of resources, a deadlock occurs when processes wait for each other. Virtual memory uses page tables to map virtual addresses to physical memory. A page fault occurs when a required page is not in memory, in a computer network, a TCP port identifies a service. A router forwards packets between subnets, the cash stores frequently use data.",
+      "error": "",
+      "final_translation_complete": true,
+      "first_chinese_seconds": 2.1519320011138916,
+      "first_english_seconds": 1.1525750160217285,
+      "host_cpu_seconds": 1.163953,
+      "host_peak_rss_bytes": 28573696,
+      "input": "synthetic English audio replayed at wall-clock pace through injected capture",
+      "memory_scope": "Host RSS excludes Apple system service processes. Qwen worker RSS and Metal allocations are separate measurements that can overlap; neither is total system RAM.",
+      "microphone_used": false,
+      "private_classroom_audio_used": false,
+      "recognition_drain_seconds": 0.12894999980926514,
+      "saved_and_reloaded": true,
+      "startup_seconds": 0.2682720422744751,
+      "status": "pass",
+      "word_errors": {
+        "reference_words": 88,
+        "substitutions": 2,
+        "deletions": 0,
+        "insertions": 0,
+        "wer": 0.022727272727272728
+      }
+    },
+    {
+      "audio_seconds": 34.8834375,
+      "backend": "qwen",
+      "chinese": "互斥保护共享资源。 相互排除一次只允许一个线程进入关键部分。 一个訊號线可以允许多个线程访问。 资源数量有限。 当进程相互等待时，就会发生死锁。 虚拟内存使用页面表将虚拟地址映射到物理内存。 当所需的页面不在内存中时，就会发生页面故障。 在计算机网络中，TCP端口标识服务。 路由器在子网之间转发数据包。 缓存存储常用数据。",
+      "context_review_enabled": false,
+      "english": "A mutex protects a shared resource. Mutual exclusion allows only one thread to enter a critical section at a time. A semaphore can allow several threads to access. A limited number of resources. A deadlock occurs when processes wait for each other. Virtual memory uses page tables to map virtual addresses to physical memory. A page fault occurs when a required page is not in memory. In a computer network, a TCP port identifies a service. A router forwards packets between subnets. The cache stores frequently used data.",
+      "error": "",
+      "final_translation_complete": true,
+      "first_chinese_seconds": 4.670228958129883,
+      "first_english_seconds": 3.5801849365234375,
+      "host_cpu_seconds": 0.680892,
+      "host_peak_rss_bytes": 23101440,
+      "input": "synthetic English audio replayed at wall-clock pace through injected capture",
+      "memory_scope": "Host RSS excludes Apple system service processes. Qwen worker RSS and Metal allocations are separate measurements that can overlap; neither is total system RAM.",
+      "microphone_used": false,
+      "private_classroom_audio_used": false,
+      "qwen_model_load_seconds": 2.995058542001061,
+      "qwen_peak_mlx_allocation_bytes": 2486682476,
+      "qwen_worker_cpu_seconds": 6.455376,
+      "qwen_worker_peak_rss_bytes": 914620416,
+      "recognition_drain_seconds": 0.9494309425354004,
+      "saved_and_reloaded": true,
+      "startup_seconds": 3.412706971168518,
+      "status": "pass",
+      "word_errors": {
+        "reference_words": 88,
+        "substitutions": 0,
+        "deletions": 0,
+        "insertions": 0,
+        "wer": 0.0
+      }
+    }
+  ],
+  "microphone_used": false,
+  "independent_accuracy_benchmark": false,
+  "context_review_enabled": false,
+  "limitations": [
+    "Single synthetic voice and single run per engine; no classroom WER is established.",
+    "WER ignores punctuation and capitalization; it does not evaluate Chinese translation quality.",
+    "First-text latency is measured from paced file capture; startup is reported separately.",
+    "Host RSS excludes Apple system services. Worker RSS is not total unified-memory usage; Metal is reported separately and may overlap RSS.",
+    "Metal allocations and RSS overlap in unified memory and must not be added into a total RAM figure."
+  ]
+}

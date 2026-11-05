@@ -1,6 +1,6 @@
 {
   "checked_on": "2026-11-05",
-  "app_version": "1.5.0",
+  "app_version": "1.6.0",
   "environment": {
     "architecture": "arm64",
     "macos": "26.4.1",
@@ -16,8 +16,9 @@
     "paragraphs": 30,
     "live_preview": 30,
     "pause": 27,
-    "total": 171,
-    "context_review": 47
+    "total": 190,
+    "context_review": 47,
+    "speech_backend": 19
   },
   "regression_data": "temporary fixtures; injected recording backend; no microphone",
   "native_preview": "pass; scripted ASR text through actual TranslationSession and application queue",
@@ -31,5 +32,18 @@
   "context_model_thinking_enabled": true,
   "context_fixtures_used_during_development": true,
   "independent_context_accuracy_benchmark": false,
-  "context_service_owned_start_and_shutdown": "pass; repeated real-model fixtures after stopping separately started test server; no owned process remained"
+  "context_service_owned_start_and_shutdown": "pass; repeated real-model fixtures after stopping separately started test server; no owned process remained",
+  "python_audio_scheduler_tests": 7,
+  "combined_logic_checks": 197,
+  "native_backend_comparison": "pass; same synthetic paced audio through real Apple/Qwen ASR, Apple Translation, app scheduler and save/reload; see backend-comparison.json",
+  "private_lecture_comparison": {
+    "status": "pass",
+    "seconds": 45,
+    "both_engines_saved_and_reloaded": true,
+    "human_reference_available": false,
+    "classroom_accuracy_established": false,
+    "audio_and_transcript_published": false
+  },
+  "qwen_asr_cold_setup": "pass; downloaded and SHA-verified official Python, installed public PyPI dependencies, reused SHA-verified local model weights; offline ASR and normal shutdown passed",
+  "qwen_asr_real_pause_resume": "pass; synthetic file capture, real Qwen worker, no microphone"
 }

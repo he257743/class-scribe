@@ -1,0 +1,14 @@
+{
+  "status": "pass",
+  "checked_on": "2026-11-05",
+  "python": "3.12.16",
+  "mlx_audio": "0.5.8",
+  "transformers": "5.19.0",
+  "official_python_archive_digest_verified": true,
+  "dependencies_installed_from_public_pypi": true,
+  "model_weights_reused_from_local_verified_copy": true,
+  "fresh_network_model_download_tested": false,
+  "offline_synthetic_recognition": "pass",
+  "normal_process_exit": "pass",
+  "microphone_used": false
+}

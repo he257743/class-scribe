@@ -2,7 +2,7 @@
 
 A native macOS app for on-device English lecture transcription and Simplified Chinese translation.
 
-听课译记是一个在 Mac 本机运行的英文课堂转录与中文翻译工具。通过麦克风接收语音，显示英文原文与中文译文，按段落整理内容，并保存课堂记录和可选原音。项目来自日常上课时的实际需要，现公开源码，欢迎使用、反馈和共同改进。当前版本为 **1.5.0**。
+听课译记是一个在 Mac 本机运行的英文课堂转录与中文翻译工具。通过麦克风接收语音，显示英文原文与中文译文，按段落整理内容，并保存课堂记录和可选原音。项目来自日常上课时的实际需要，现公开源码，欢迎使用、反馈和共同改进。当前版本为 **1.6.0**。
 
 ![听课译记：真实 SwiftUI 界面的合成文字演示](docs/images/demo.png)
 
@@ -19,7 +19,7 @@ A native macOS app for on-device English lecture transcription and Simplified Ch
 
 ## 功能
 
-- **本机英文识别与中文翻译**：使用 Apple Speech 与 Translation 框架；首次准备语言包需要联网。
+- **可切换的本机英文识别**：选择 Apple Speech 或 Qwen3-ASR；中文翻译使用 Apple Translation。千问识别与上下文校对分别准备，首次下载需要联网。
 - **段落与逐句模式**：支持约 15、25、40 秒的目标段落长度，保留识别原始片段和时间范围。
 - **实时中文预览**：段落未结束时提前翻译，清楚标记预览；段落结束后再进行整段定稿。
 - **可选的后文校对**：使用 Qwen3 本机语言模型回看最近约 90 秒、最多 4 段内容，尝试纠正专业词和中文词义。校订另存，原始识别、初始译文与修订依据可查看。
@@ -34,7 +34,7 @@ A native macOS app for on-device English lecture transcription and Simplified Ch
 | --- | --- |
 | 界面 | SwiftUI、AppKit：课堂列表、双语内容、设置、原生导出窗口 |
 | 音频 | AVAudioEngine：麦克风采集、格式转换、可选 CAF 原音保存 |
-| 识别 | SpeechAnalyzer、SpeechTranscriber：本机连续英文识别、临时与定稿结果 |
+| 识别 | 可选 SpeechAnalyzer / SpeechTranscriber 或 MLX Qwen3-ASR 的分块增量识别；均接入同一段落与翻译流程 |
 | 翻译 | TranslationSession：设备端英译简体中文 |
 | 后文校对（可选） | Qwen3 + 独立的 Ollama 本机进程：读取最近文字，判断术语修订候选是否符合后文 |
 | 应用逻辑 | Swift Concurrency：状态转换、翻译队列、取消、过期回复校验 |
@@ -43,7 +43,7 @@ A native macOS app for on-device English lecture transcription and Simplified Ch
 ```mermaid
 flowchart LR
     Mic[麦克风] --> Capture[音频采集]
-    Capture --> Speech[Apple 本机识别]
+    Capture --> Speech[Apple 或 Qwen3-ASR 本机识别]
     Capture --> Audio[可选原音保存]
     Speech --> Paragraph[段落缓冲与修订]
     Paragraph --> Queue[预览与定稿翻译队列]
@@ -59,7 +59,7 @@ flowchart LR
     Store --> Export[Word / TXT / SRT]
 ```
 
-基础识别和翻译模型由 Apple 提供。可选的后文校对使用单独下载的 Qwen3 语言模型，在 Mac 本机运行；仅向固定的本机回环地址发送最近文字，不发送原音，不使用云端模型回退。
+苹果识别和基础翻译模型由 Apple 提供。千问识别模式通过独立的本机 Python / MLX 进程运行 Qwen3-ASR，音频通过匿名管道传递；推理时关闭模型自动联网获取。可选的后文校对使用单独下载的 Qwen3 语言模型，在 Mac 本机运行；仅向固定的本机回环地址发送最近文字，不发送原音，不使用云端模型回退。
 
 ## 开始使用
 
@@ -70,6 +70,8 @@ flowchart LR
 3. 点击“开始听课”并允许麦克风访问，查看英文原文和中文预览。
 4. 中途可暂停、继续；下课后停止听课，等待末段文字保存和翻译完成。
 5. 根据原音核对文字，必要时编辑，再导出 Word、TXT 或双语 SRT。
+
+需要切换识别引擎时，在右上角设置选择“千问 Qwen3-ASR”，再点击准备组件。识别模型约 1.6GB，另有 Python / MLX 组件；初次开始需要加载模型。翻译层继续使用苹果模型。
 
 需要后文校对时，在右上角设置中选择课程领域和上下文模型，再点击“准备上下文模型”。这一步与苹果语言包分开，未准备时仍可使用基础识别和翻译。
 
@@ -141,6 +143,27 @@ zsh Tools/render-demo.sh
 - 原生识别管线曾用本机合成英语音频验证；翻译曾用 Apple 原生翻译会话验证。
 - 真实麦克风暂停操作、课堂远场效果和长时间稳定性仍需持续实测。
 - 不承诺完全无误的转录；专业术语和含混语音需要对照原音核查。
+
+## 识别引擎比较
+
+![千问识别模式：合成文字界面演示，未开启麦克风](docs/images/demo-qwen.png)
+
+在同一段约 35 秒的合成英语、相同术语列表、关闭额外上下文校对的条件下，按真实时间回放到完整的识别、中文翻译和保存流程：
+
+| 开发样例结果 | Apple | Qwen3-ASR |
+| --- | ---: | ---: |
+| 英文词错误率（不计标点与大小写） | 2.27% | 0% |
+| 首次英文（从音频输入开始） | 1.15 秒 | 3.58 秒 |
+| 首次中文（从音频输入开始） | 2.15 秒 | 4.67 秒 |
+
+这是单一合成声音的开发回归样例，不能推断真实课堂准确率；词错误率也不评价断句或中文译文质量。模型启动时间另计。千问另有 Python 进程及 Metal 内存分配，系统服务的完整内存占用未测，不能用宿主进程 RSS 直接比较两种方案的总内存。报告见 [比较记录](validation/backend-comparison.json)。默认仍为苹果识别，可按课程需要切换。
+
+准备两种引擎后可复现：
+
+```sh
+zsh Tests/run-backend-comparison.sh
+python3 Tools/SummarizeBackendComparison.py build validation/backend-comparison.json
+```
 
 ## 当前范围
 

@@ -141,7 +141,7 @@ struct ContentView: View {
                     Text("English").fontWeight(.medium)
                     Image(systemName: "arrow.right").font(.system(size: 10))
                     Text("简体中文").fontWeight(.medium)
-                    Text("·  麦克风收音").foregroundStyle(.secondary)
+                    Text("·  " + model.speechBackend.title).foregroundStyle(.secondary)
                     Text("·  \(model.translationStyle.title)").foregroundStyle(.secondary)
                 }.font(.system(size: 12)).foregroundStyle(accent)
             }
@@ -171,17 +171,20 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("先准备本机语言包").font(.system(size: 15, weight: .semibold))
+                    Text(model.speechBackend == .apple ? "先准备本机语言包" : "先准备千问识别与翻译组件").font(.system(size: 15, weight: .semibold))
                     Text("首次需要联网下载。准备完成后，可断网收音、识别和翻译。")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(model.preparing ? "正在准备…" : "准备语言包") { model.prepareLanguages() }
+                Button(model.preparing ? "正在准备…" : (model.speechBackend == .apple ? "准备语言包" : "准备识别组件")) { model.prepareLanguages() }
                     .buttonStyle(.borderedProminent).disabled(model.preparing || model.busy || model.store == nil)
             }
             HStack(spacing: 20) {
                 statusItem(model.speechStatus, ready: model.speechReady, working: model.speechPreparing)
                 statusItem(model.translationStatus, ready: model.translationReady, working: model.translationPreparing)
+            }
+            if model.speechPreparing && model.speechBackend == .qwen {
+                Button("取消准备") { model.cancelSpeechPreparation() }.buttonStyle(.borderless)
             }
             if model.speechPreparing && model.speechProgress > 0 {
                 ProgressView(value: model.speechProgress).tint(accent)
@@ -365,6 +368,20 @@ struct ContentView: View {
         ScrollView {
         VStack(alignment: .leading, spacing: 18) {
             Text("翻译与收音").font(.headline)
+            Picker("英语识别引擎", selection: $model.speechBackend) {
+                ForEach(SpeechBackend.allCases, id: \.self) { backend in Text(backend.title).tag(backend) }
+            }.disabled(model.busy || model.preparing)
+            Text(model.speechBackend == .apple ? "使用 macOS 的连续英语识别。" :
+                "使用本机 Qwen3-ASR 识别英语，再交给苹果模型翻译。约每 3 秒尝试更新草稿，停顿或分块后定稿；这不是完成延迟承诺。首次开始需要加载模型，看到“正在听课”后再开始讲述。")
+                .font(.caption).foregroundStyle(.secondary)
+            if model.speechBackend == .qwen {
+                Text("识别模型约 1.6GB，另需运行组件。与上下文校对模型用途不同，同时开启会增加资源占用。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(model.speechStatus).font(.caption).foregroundStyle(.secondary)
+                Button(model.speechReady ? "识别组件已准备" : "准备千问识别") { model.prepareLanguages() }
+                    .disabled(model.speechReady || model.busy || model.preparing || model.demoMode)
+            }
+            Divider()
             Picker("翻译方式", selection: $model.translationStyle) {
                 ForEach(TranslationStyle.allCases, id: \.self) { style in
                     Text(style.title).tag(style)
@@ -431,7 +448,7 @@ struct ContentView: View {
     private var help: some View {
         VStack(alignment: .leading, spacing: 19) {
             Text("开始使用听课译记").font(.title2.bold())
-            Text("1  首次点击“准备语言包”，联网下载系统的英语语音包和中英翻译包。")
+            Text("1  首次点击“准备语言包”，联网下载系统英语语音包和中英翻译包。也可在设置中切换千问识别，并另行准备识别组件。")
             Text("2  新建课堂，点击“开始听课”，允许麦克风访问。尽量靠近老师或使用外接麦克风。")
             Text("3  中途可点击“暂停”，继续时点击“继续听课”，快捷键为 ⌘⇧P。暂停会停止收音和计时，已有内容的翻译仍可完成。下课时点击“停止听课”或“结束听课”。")
             Text("4  右键左侧课堂，选择“删除课堂”；也可点击右上角废纸篓按钮。确认后，课堂文字和关联录音一起移到废纸篓。录音期间无法删除。")

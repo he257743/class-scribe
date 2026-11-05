@@ -5,7 +5,7 @@ import SwiftUI
 // This tool does not access the microphone or the user's classroom store.
 @main struct RenderDemo {
     @MainActor static func main() throws {
-        guard CommandLine.arguments.count == 2 else {
+        guard CommandLine.arguments.count >= 2 else {
             fatalError("Usage: render-demo output.png")
         }
         _ = NSApplication.shared
@@ -13,6 +13,7 @@ import SwiftUI
         let preferences = UserDefaults(suiteName: suite)!
         defer { preferences.removePersistentDomain(forName: suite) }
         let model = AppModel(demoMode: true, preferences: preferences)
+        if CommandLine.arguments.contains("--qwen") { model.speechBackend = .qwen }
         if !model.lectures.isEmpty {
             model.lectures[0].title = "操作系统 · 合成校订演示"
             let corrected = model.lectures[0].segments[0]
