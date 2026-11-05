@@ -95,13 +95,19 @@ struct ContextReviewWindow: Sendable {
             $0.end >= latestEnd - 90 && !$0.english.isEmpty && $0.english.count <= 1500
         }.suffix(4))
         guard rows.count >= 2,
-              rows.dropLast().contains(where: { !$0.isCollectingParagraph && !$0.edited }) else { return nil }
+              rows.dropLast().contains(where: eligible) else { return nil }
         return Self(lectureID: lecture.id, entries: rows.map {
             ContextReviewEntry(id: $0.id, english: $0.english, chinese: $0.chinese,
-                isComplete: !$0.isCollectingParagraph && !$0.edited && $0.translationState != .edited,
+                isComplete: eligible($0),
                 revision: $0.activeContextRevision)
         }, terms: CourseGlossary.terms(domain: domain, custom: custom),
             subject: String((subject.isEmpty ? domain.title : subject).prefix(250)), model: model)
+    }
+
+    private static func eligible(_ row: TranscriptSegment) -> Bool {
+        !row.isCollectingParagraph && !row.edited && row.translationState == .complete &&
+            !row.hasPreviewTranslation && !row.chinese.isEmpty &&
+            (row.translatedSource == nil || row.translatedSource == row.english)
     }
 
     var fingerprint: String {

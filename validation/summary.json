@@ -16,8 +16,8 @@
     "paragraphs": 30,
     "live_preview": 30,
     "pause": 27,
-    "total": 168,
-    "context_review": 44
+    "total": 171,
+    "context_review": 47
   },
   "regression_data": "temporary fixtures; injected recording backend; no microphone",
   "native_preview": "pass; scripted ASR text through actual TranslationSession and application queue",

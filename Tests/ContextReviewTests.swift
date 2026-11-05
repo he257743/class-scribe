@@ -57,6 +57,16 @@ final class MissingSpeechFixture: SpeechRecording, @unchecked Sendable {
         check(ContextReviewPolicy.candidates(in: unrelated).isEmpty,
             "no terminology candidate is created without the term in later speech")
         let revision = ContextReviewPolicy.revision(patch, window: window)!
+        var partial = lecture
+        partial.segments[0].translationIsPreview = true
+        check(ContextReviewWindow.make(lecture: partial, domain: .operatingSystems, custom: "", subject: "", model: .larger) == nil,
+            "a closed paragraph with only a partial Chinese preview waits for full translation")
+        check(!partial.segments[0].applyContextRevision(revision, expectedPrevious: nil),
+            "a context reply cannot freeze an incomplete Chinese preview")
+        partial.segments[0].translationIsPreview = false
+        partial.segments[0].translatedSource = "An older, shorter English snapshot."
+        check(ContextReviewWindow.make(lecture: partial, domain: .operatingSystems, custom: "", subject: "", model: .larger) == nil,
+            "a translation of an older English snapshot cannot become the corrected final view")
         check(revision.english == "This mutex protects the shared resource.", "later explicit terminology permits a localized correction")
         var row = lecture.segments[0]
         check(row.applyContextRevision(revision, expectedPrevious: nil), "verified revision is accepted")

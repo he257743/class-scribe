@@ -49,7 +49,8 @@ struct TranscriptSegment: Identifiable, Codable, Equatable {
 
     @discardableResult
     mutating func applyContextRevision(_ revision: ContextRevision, expectedPrevious: ContextRevision?) -> Bool {
-        guard !edited, translationState != .edited, !isCollectingParagraph,
+        guard !edited, translationState == .complete, !isCollectingParagraph, !hasPreviewTranslation,
+              translatedSource == nil || translatedSource == english,
               english == revision.sourceEnglish, activeContextRevision == expectedPrevious else { return false }
         if let last = activeContextRevision, last.english == revision.english && last.chinese == revision.chinese { return false }
         var history = contextRevisions ?? []
