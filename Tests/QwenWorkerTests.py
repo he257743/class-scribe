@@ -4,8 +4,9 @@ import math
 from pathlib import Path
 import sys
 import unittest
+from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'Resources'))
-from QwenASRWorker import Segmenter, JobQueue, AudioJob, RATE, SpeechGate, looks_like_prompt_echo, model_events
+from QwenASRWorker import Segmenter, JobQueue, AudioJob, RATE, SpeechGate, looks_like_prompt_echo, model_events, recognition_issue, recognize_window, token_budget
 
 class SegmenterTests(unittest.TestCase):
     def test_irregular_packet_sizes_preserve_every_sample_once(self):
@@ -106,5 +107,65 @@ class RecognitionGuardTests(unittest.TestCase):
             def __init__(self, mode):pass
         with self.assertRaises(ValueError):
             SpeechGate(VAD).contains_speech(array.array('f', [float('nan')]).tobytes())
+
+
+class RunawayRecognitionTests(unittest.TestCase):
+    def test_phrase_loop_is_flagged_at_impossible_density(self):
+        self.assertEqual(recognition_issue('An example packet crossed the network, ' * 64, 9), 'repetition')
+
+    def test_single_word_loop_after_valid_prefix_is_flagged(self):
+        self.assertEqual(recognition_issue("We are going to the lab. " + 'yeah, ' * 185, 28), 'repetition')
+
+    def test_normal_repetition_and_slow_practice_are_preserved(self):
+        for text,seconds in [('No, no, no. Do not unlock the mutex.', 3),
+                ('The packet is sent. ' * 3, 10), ('An example packet crossed the network. ' * 10, 60)]:
+            self.assertIsNone(recognition_issue(text,seconds))
+
+    def test_token_limit_is_proportional_but_allows_fast_technical_speech(self):
+        self.assertEqual(token_budget(3),80)
+        self.assertGreaterEqual(token_budget(12),200)
+        self.assertLessEqual(token_budget(12),384)
+
+    def test_runaway_stream_closes_early_and_next_call_still_succeeds(self):
+        class Model:
+            calls = 0
+            closed = 0
+            emitted = 0
+            def stream_transcribe(self,audio,**kwargs):
+                self.calls += 1
+                try:
+                    words = ['from '] * 1000 if self.calls == 1 else ['A ', 'mutex ', 'protects ', 'the ', 'resource.']
+                    for word in words:
+                        self.emitted += 1
+                        yield SimpleNamespace(text=word)
+                finally:
+                    self.closed += 1
+        model=Model();audio=[0.01] * (3 * RATE)
+        first=recognize_window(model,audio)
+        self.assertEqual(first['issue'],'repetition')
+        self.assertLess(model.emitted,100)
+        second=recognize_window(model,audio)
+        self.assertIsNone(second['issue'])
+        self.assertEqual(second['text'],'A mutex protects the resource.')
+        self.assertEqual(model.closed,2)
+
+    def test_reported_budget_exhaustion_is_not_a_normal_result(self):
+        class Model:
+            def stream_transcribe(self,audio,**kwargs):
+                yield SimpleNamespace(text='Some words',generation_tokens=kwargs['max_tokens'])
+        self.assertEqual(recognize_window(Model(),[0.0] * RATE)['issue'],'generationLimit')
+
+    def test_cancellation_closes_the_generation_iterator(self):
+        class Model:
+            closed = False
+            def stream_transcribe(self,audio,**kwargs):
+                try:
+                    yield SimpleNamespace(text='word')
+                finally:
+                    self.closed=True
+        model=Model()
+        with self.assertRaisesRegex(RuntimeError,'overloaded'):
+            recognize_window(model,[0.1]*RATE,lambda:RuntimeError('overloaded'))
+        self.assertTrue(model.closed)
 
 if __name__ == '__main__':unittest.main()

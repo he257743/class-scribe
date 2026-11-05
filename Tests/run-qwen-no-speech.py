@@ -11,6 +11,9 @@ import subprocess
 import threading
 import time
 import wave
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parents[1] / "Resources"))
+from QwenASRWorker import recognition_issue
 
 def wav_pcm(path):
     with wave.open(str(path)) as f:
@@ -53,7 +56,10 @@ def run(python,model,worker,pcm,terms,log,pace=True):
             if p.poll() is None:p.terminate();p.wait(timeout=5)
     results=[x for x in events if x['kind']=='result']
     return {'result_events':len(results),'prompt_echo_events':sum(echo(x.get('text','')) for x in results),
-            'error_events':sum(x['kind']=='error' for x in events),'normal_exit':p.returncode==0,
+            'error_events':sum(x['kind']=='error' for x in events),
+            'rejected_events':sum(x['kind']=='rejected' for x in events),
+            'unsafe_result_events':sum(recognition_issue(x.get('text',''),x['end']-x['start']) is not None for x in results),
+            'final_issue_reasons':sorted(set(x.get('issue','') for x in events if x['kind']=='rejected' and x.get('final'))),'normal_exit':p.returncode==0,
             'stopped':any(x['kind']=='stopped' for x in events),
             'final_text':' '.join(x['text'] for x in results if x.get('final'))}
 

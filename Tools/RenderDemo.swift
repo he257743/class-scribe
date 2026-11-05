@@ -34,6 +34,13 @@ import SwiftUI
             model.lectures[0].segments[0].english = "Transcribe the English lecture faithfully. Technical vocabulary: mutex, thread, process."
             model.lectures[0].segments[0].chinese = "这是一段异常提示的机器译文。"
         }
+        if CommandLine.arguments.contains("--repetition") {
+            model.speechBackend = .qwen
+            model.lectures[0].title = "循环识别保护 · 合成演示"
+            model.lectures[0].segments[0].english = String(repeating: "A repeated synthetic phrase. ", count: 12)
+            model.lectures[0].segments[0].chinese = "这是一段异常循环的旧机器译文。"
+            model.lectures[0].segments[0].recognitionIssue = .repetition
+        }
         let view = ContentView(model: model)
             .frame(width: 1280, height: 820)
             .environment(\.colorScheme, .light)

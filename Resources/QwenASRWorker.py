@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import json
 import math
 import os
+import re
 import signal
 import sys
 import threading
@@ -158,11 +159,59 @@ class SpeechGate:
         voiced, longest = self.voiced_frames(pcm)
         return voiced >= 8 and longest >= 5
 
-def model_events(model, audio):
-    # ASR context is not an instruction-following chat prompt. Passing the
-    # instruction and full glossary caused 1.6.0 to transcribe its own prompt.
-    return model.stream_transcribe(audio, language='English', max_tokens=384,
+def recognition_issue(text, seconds):
+    if looks_like_prompt_echo(text):
+        return 'promptEcho'
+    words = re.findall(r"[^\W_]+(?:['’][^\W_]+)*", text.casefold())
+    # Review extreme periodic runs; never deduplicate or silently rewrite them.
+    minimum = max(32, math.ceil(max(0, seconds) * 5))
+    for width in range(1, min(12, len(words) // 8) + 1):
+        matched = 0
+        for index in range(width, len(words)):
+            matched = matched + 1 if words[index] == words[index - width] else 0
+            span = matched + width
+            if span >= minimum and span // width >= 8:
+                return 'repetition'
+    if len(words) > max(48, math.ceil(max(0, seconds) * 12)) or len(text) > 6000:
+        return 'generationLimit'
+    return None
+
+def token_budget(seconds):
+    return min(384, max(64, math.ceil(seconds * 16) + 32))
+
+def model_events(model, audio, max_tokens=384):
+    # ASR context is not an instruction-following chat prompt.
+    return model.stream_transcribe(audio, language='English', max_tokens=max_tokens,
         temperature=0.0, chunk_duration=15, verbose=False, system_prompt=None)
+
+def recognize_window(model, audio, cancelled=lambda: None):
+    seconds = len(audio) / RATE
+    limit = token_budget(seconds)
+    text = ''; tokens = 0; first = None; issue = None
+    began = time.monotonic()
+    events = model_events(model, audio, max_tokens=limit)
+    try:
+        for event in events:
+            problem = cancelled()
+            if problem:
+                raise problem
+            if event.text:
+                tokens += 1
+                text += event.text
+                if first is None:
+                    first = time.monotonic() - began
+                issue = recognition_issue(text, seconds)
+                if issue:
+                    break
+            tokens = max(tokens, getattr(event, 'generation_tokens', 0) or 0)
+    finally:
+        if hasattr(events, 'close'):
+            events.close()
+    if tokens >= limit:
+        issue = issue or 'generationLimit'
+    # Publish only checked snapshots, not unchecked individual decode tokens.
+    return dict(text=text[:6000].strip(), issue=issue, first_token_seconds=first,
+                processing_seconds=time.monotonic() - began)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -208,42 +257,29 @@ def main():
                 jobs.close(error)
         threading.Thread(target=ingest, daemon=True).start()
         gate = SpeechGate(webrtcvad.Vad)
+        previews = {}
         while (job := jobs.take()) is not None:
-            # Energy alone classified ordinary microphone noise as speech.
-            # The capture file remains intact even when this window is skipped.
-            if Segmenter.energy(job.pcm) < 0.00001 or not gate.contains_speech(job.pcm):
-                continue
-            began = time.monotonic()
-            text = ''
-            last_emit = began
-            first = None
-            tokens = 0
-            with contextlib.redirect_stdout(sys.stderr):
-                for event in model_events(model, np.frombuffer(job.pcm, dtype='<f4').copy()):
-                    if jobs.problem:
-                        raise jobs.problem
-                    if event.text:
-                        tokens += 1
-                        text += event.text
-                        if first is None:
-                            first = time.monotonic() - began
-                        if len(text) > 6000:
-                            raise ValueError('识别结果异常过长，已停止并保留原音。')
-                        if looks_like_prompt_echo(text):
-                            raise ValueError('检测到识别器回显内部提示，已停止输出异常文字，请保留原音回听。')
-                        now = time.monotonic()
-                        if now - last_emit >= 0.2 and text.strip():
-                            emit(kind='result', start=job.start / RATE, end=job.end / RATE,
-                                text=text.strip(), final=False)
-                            last_emit = now
-            if tokens >= 384:
-                raise ValueError('识别达到本段长度上限，可能有遗漏；已停止，请回听原音。')
-            if text.strip():
-                emit(kind='result', start=job.start / RATE, end=job.end / RATE,
-                    text=text.strip(), final=job.final, processing_seconds=time.monotonic() - began,
-                    first_token_seconds=first, peak_mlx_bytes=mx.get_peak_memory(),
-                    worker_peak_rss_bytes=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
-            mx.clear_cache()
+            result = None
+            try:
+                if Segmenter.energy(job.pcm) >= 0.00001 and gate.contains_speech(job.pcm):
+                    with contextlib.redirect_stdout(sys.stderr):
+                        result = recognize_window(model, np.frombuffer(job.pcm, dtype='<f4').copy(), lambda: jobs.problem)
+                # A final failed/empty result must not leave an old draft looking valid.
+                if not result or not result['text']:
+                    if not job.final or job.start not in previews:
+                        continue
+                    result = dict(text=previews[job.start], issue='emptyResult')
+                text = result.pop('text'); issue = result.pop('issue')
+                emit(kind='rejected' if issue else 'result', start=job.start / RATE,
+                    end=job.end / RATE, text=text, final=job.final, issue=issue,
+                    peak_mlx_bytes=mx.get_peak_memory(),
+                    worker_peak_rss_bytes=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, **result)
+                if job.final:
+                    previews.pop(job.start, None)
+                else:
+                    previews[job.start] = text
+            finally:
+                mx.clear_cache()
         emit(kind='stopped', worker_peak_rss_bytes=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
             worker_cpu_seconds=resource.getrusage(resource.RUSAGE_SELF).ru_utime + resource.getrusage(resource.RUSAGE_SELF).ru_stime)
     except BaseException as error:

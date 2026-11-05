@@ -140,6 +140,7 @@ struct QwenWorkerEvent: Decodable {
     var workerCpuSeconds: Double?
     var modelLoadSeconds: Double?
     var progress: Double?
+    var issue: RecognitionIssue?
 }
 
 actor QwenSpeechEngine: SpeechRecording {
@@ -185,17 +186,18 @@ actor QwenSpeechEngine: SpeechRecording {
                     if let cpu = event.workerCpuSeconds { workerCPU = cpu }
                     switch event.kind {
                     case "ready": modelLoadSeconds = event.modelLoadSeconds ?? 0; ready.resolve(.success(()))
-                    case "result":
+                    case "result", "rejected":
                         guard let start = event.start, let end = event.end, let text = event.text,
                               start.isFinite, end.isFinite, start >= 0, end > start,
                               end - start <= 15, !text.isEmpty, text.count <= 6000 else {
                             throw ClassScribeError.message("千问识别返回了无效片段，已保留原音。")
                         }
-                        guard !RecognitionSanity.isPromptEcho(text) else {
-                            throw ClassScribeError.message("识别器回显了内部提示，已停止输出异常文字，请回听原音。")
+                        let issue = event.issue ?? RecognitionSanity.issue(text, seconds: end - start)
+                        guard event.kind != "rejected" || issue != nil else {
+                            throw ClassScribeError.message("千问识别未提供异常片段的核查原因。")
                         }
                         await receive(.init(start: start + offset, end: end + offset, text: text,
-                            isFinal: event.final == true, confidence: nil))
+                            isFinal: event.final == true, confidence: nil, recognitionIssue: issue))
                     case "error": throw ClassScribeError.message(event.message ?? "千问识别未完成。")
                     case "stopped": stoppedNormally = true
                     default: throw ClassScribeError.message("千问识别回复格式不匹配，请重新准备组件。")

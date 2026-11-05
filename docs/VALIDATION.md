@@ -1,8 +1,8 @@
 # 验证范围
 
-以下记录基于应用 1.6.1，记录本地检查的范围和复现方法。具体结果见 `validation/summary.json`。
+以下记录基于应用 1.6.2，记录本地检查的范围和复现方法。具体结果见 `validation/summary.json`。
 
-2026 年 11 月 5 日，本机重新构建、签名与 ZIP 检查通过；八组 Swift 回归检查共 **205 项通过**：转录与导出 16、删除 21、段落 30、实时预览 30、暂停恢复 27、上下文校订 47、识别后端 21、提示回显保护 13。另有 12 项 Python 音频调度与语音检测检查通过，合计 **217 项**。脚本额外执行了 DOCX 导出检查。
+2026 年 11 月 5 日，本机重新构建、签名与 ZIP 检查通过；九组 Swift 回归检查共 **218 项通过**：转录与导出 16、删除 21、段落 30、实时预览 30、暂停恢复 27、上下文校订 47、识别后端 21、提示回显保护 13、循环识别保护 13。另有 19 项 Python 音频调度与生成检查通过，合计 **237 项**。脚本额外执行了 DOCX 导出检查。
 
 同日，Apple 两项可选原生管线也已通过。对应报告为 `validation/native-live-preview-test.json` 和 `validation/native-paragraph-test.json`。所有输入均为脚本化文字或本机合成英语，不是私人课堂录音。
 
@@ -21,6 +21,7 @@
 | 后文校对 | `Tests/ContextReviewTests.swift` | 局部替换、后文引用、原文保留、人工修改、过期回复、旧记录兼容与导出 |
 | 识别引擎与通信 | `Tests/SpeechBackendTests.swift`、`Tests/QwenWorkerTests.py` | 后端选择、组件准备取消、缺失恢复、匿名音频管道、过载停止、样本保留与末段收尾 |
 | 异常回显 | `Tests/PromptEchoTests.swift` | 历史异常标记、原文保留、翻译与校对隔离、导出标签和人工确认 |
+| 循环识别 | `Tests/RepetitionTests.swift` | 旧循环标记、正常重复保留、异常窗口隔离、保存恢复、相邻段落继续翻译 |
 | ZIP | `python3 Tools/VerifyPackage.py dist/听课译记.zip` | 归档结构、UTF-8 文件名、图标和可执行权限 |
 | 原生预览（可选） | `Tests/NativeLivePreviewTest.swift` | 脚本化英文识别文本经过真实 Apple 翻译与应用调度流程 |
 | 原生音频管线（可选） | `Tests/NativeParagraphTest.swift` | 本机合成英语文件经过真实识别、应用段落队列、翻译与保存恢复 |
@@ -37,7 +38,7 @@
 
 ## 双识别引擎的实际管线
 
-`validation/backend-comparison.json` 记录同一段合成英语按墙钟节奏回放到 `AudioCapturing`，经过真实苹果或千问识别、真实 Apple Translation、应用预览队列和保存恢复的结果。两个引擎均成功完成。单一开发样例的词错误率为 Apple 2.27%、Qwen3-ASR 2.27%；首次中文分别约 2.22 / 4.33 秒。启动时间另计，词错误率不评价标点、断句和中文质量；不能推广为真实课堂准确率。
+`validation/backend-comparison.json` 记录同一段合成英语按墙钟节奏回放到 `AudioCapturing`，经过真实苹果或千问识别、真实 Apple Translation、应用预览队列和保存恢复的结果。两个引擎均成功完成。单一开发样例的词错误率为 Apple 2.27%、Qwen3-ASR 2.27%；首次中文分别约 1.85 / 4.38 秒。启动时间另计，词错误率不评价标点、断句和中文质量；不能推广为真实课堂准确率。
 
 额外使用同一段 45 秒已有课堂录音进行本机检查，两种引擎均完成识别、翻译与保存恢复。没有人工标准稿，因此不计算课堂词错误率。课堂音频和转录文字未进入公开仓库。
 
@@ -69,6 +70,19 @@ python3 Tests/run-qwen-no-speech.py
 # 可用自己的 16kHz 单声道 PCM16 WAV 追加故障样例
 python3 Tests/run-qwen-no-speech.py --problem-audio /path/to/example.wav
 ```
+
+## 循环输出回归
+
+1.6.1 的静音和提示回显保护没有覆盖所有生成退化。此次用另一段已有故障录音进行前后对比：旧版产生 20 次可疑增量字幕更新并提前退出；新版标记 1 次可疑快照，没有将循环作为普通字幕发布，且正常退出。把清楚的合成英语接到问题音频后，后续识别仍完成。这里的更新次数不是独立发言次数。
+
+`Tests/run-qwen-repetition.py` 使用实际本机模型和文件回放。结果见 `validation/repetition-regression.json`，只保留统计，不包含私人音频和转录文字。另通过真实 Qwen 进程、Apple Translation 与 AppModel 队列的恢复和保存检查。更长窗口的正确结果可以替换异常草稿，因此不要求暂时出现的异常标记永久保留。
+
+```sh
+# 已准备模型，并通过生命周期检查生成合成英语文件后
+python3 Tests/run-qwen-repetition.py --problem-audio /path/to/example.wav
+```
+
+这些样例证明已知故障的隔离和恢复，不证明所有循环都可检出，也不证明真实课堂准确率。
 
 ## GitHub Actions
 

@@ -1,0 +1,47 @@
+{
+  "app_version": "1.6.2",
+  "all_passed": true,
+  "microphone_used": false,
+  "private_audio_or_text_published": false,
+  "cases": [
+    {
+      "name": "original loop reproduced",
+      "passed": true,
+      "private_audio": true,
+      "result_events": 28,
+      "prompt_echo_events": 0,
+      "error_events": 1,
+      "rejected_events": 0,
+      "unsafe_result_events": 20,
+      "final_issue_reasons": [],
+      "normal_exit": false,
+      "stopped": false
+    },
+    {
+      "name": "same problem audio",
+      "passed": true,
+      "private_audio": true,
+      "result_events": 4,
+      "prompt_echo_events": 0,
+      "error_events": 0,
+      "rejected_events": 1,
+      "unsafe_result_events": 0,
+      "final_issue_reasons": [],
+      "normal_exit": true,
+      "stopped": true
+    },
+    {
+      "name": "problem followed by clear English",
+      "passed": true,
+      "private_audio": true,
+      "result_events": 7,
+      "prompt_echo_events": 0,
+      "error_events": 0,
+      "rejected_events": 1,
+      "unsafe_result_events": 0,
+      "final_issue_reasons": [],
+      "normal_exit": true,
+      "stopped": true
+    }
+  ]
+}

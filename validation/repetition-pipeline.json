@@ -1,0 +1,13 @@
+{
+  "status": "pass",
+  "microphone_used": false,
+  "audio_seconds": 20.1719375,
+  "saved_and_reloaded": true,
+  "final_translation_complete": true,
+  "retained_rejected_windows": 0,
+  "rejection_observed": true,
+  "normal_speech_translated_after_rejection": true,
+  "final_rows_saved_without_loss": true,
+  "app_version": "1.6.2",
+  "private_audio_or_text_published": false
+}

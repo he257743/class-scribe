@@ -20,12 +20,43 @@ struct RecognitionPart: Codable, Equatable {
     var text: String
     var isFinal: Bool
     var confidence: Double?
+    var recognitionIssue: RecognitionIssue?
+}
+
+enum RecognitionIssue: String, Codable, Sendable {
+    case promptEcho, repetition, generationLimit, emptyResult
+    var message: String {
+        switch self {
+        case .promptEcho: return "疑似识别器回显术语提示，不作为课堂内容。请回听原音核对。"
+        case .repetition: return "疑似识别器循环生成重复文字，请回听原音核对；已暂停翻译本段。"
+        case .generationLimit: return "识别输出超过本段合理长度，可能不完整。请回听原音核对。"
+        case .emptyResult: return "本段最终未取得可靠识别，已保留草稿供核查。请回听原音。"
+        }
+    }
 }
 
 enum RecognitionSanity {
     static func isPromptEcho(_ text: String) -> Bool {
         let text = text.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
         return text.contains("transcribe the english lecture faithfully") && text.contains("technical vocabulary:")
+    }
+    static func issue(_ text: String, seconds: Double) -> RecognitionIssue? {
+        if isPromptEcho(text) { return .promptEcho }
+        let words = text.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "’" }.map(String.init)
+        let minimum = max(32, Int(ceil(max(0, seconds) * 5)))
+        let maximumWidth = min(12, words.count / 8)
+        if maximumWidth > 0 {
+            for width in 1...maximumWidth {
+                var matched = 0
+                for index in width..<words.count {
+                    matched = words[index] == words[index - width] ? matched + 1 : 0
+                    let span = matched + width
+                    if span >= minimum && span / width >= 8 { return .repetition }
+                }
+            }
+        }
+        if words.count > max(48, Int(ceil(max(0, seconds) * 12))) || text.count > 6000 { return .generationLimit }
+        return nil
     }
 }
 
@@ -45,10 +76,14 @@ struct TranscriptSegment: Identifiable, Codable, Equatable {
     var translatedSource: String?
     var translationIsPreview: Bool?
     var contextRevisions: [ContextRevision]?
+    var recognitionIssue: RecognitionIssue?
 
     var recognitionWarning: String? {
-        guard !edited, translationState != .edited, RecognitionSanity.isPromptEcho(english) else { return nil }
-        return "疑似识别器回显术语提示，不作为课堂内容。请回听原音核对。"
+        guard !edited, translationState != .edited else { return nil }
+        let issue = recognitionIssue ?? recognitionParts?.compactMap {
+            $0.recognitionIssue ?? RecognitionSanity.issue($0.text, seconds: $0.end - $0.start)
+        }.first ?? RecognitionSanity.issue(english, seconds: end - start)
+        return issue?.message
     }
     var activeContextRevision: ContextRevision? {
         guard recognitionWarning == nil, !edited, translationState != .edited,
@@ -133,6 +168,7 @@ struct RecognitionUpdate: Sendable {
     var text: String
     var isFinal: Bool
     var confidence: Double?
+    var recognitionIssue: RecognitionIssue? = nil
 }
 
 struct TranscriptTimeline {
@@ -154,7 +190,7 @@ struct TranscriptTimeline {
                 (item.start < update.end - 0.001 && item.end > update.start + 0.001)
         }
         let item = TranscriptSegment(id: preservedID, start: update.start, end: update.end,
-            english: text, isFinal: update.isFinal, confidence: update.confidence)
+            english: text, isFinal: update.isFinal, confidence: update.confidence, recognitionIssue: update.recognitionIssue)
         segments.append(item)
         segments.sort { $0.start == $1.start ? $0.end < $1.end : $0.start < $1.start }
         return item.id
@@ -208,7 +244,7 @@ struct ParagraphBuffer {
                 english: text, isFinal: group.allSatisfy(\.isFinal),
                 confidence: group.compactMap(\.confidence).min(), paragraphComplete: complete,
                 recognitionParts: group.map { RecognitionPart(start: $0.start, end: $0.end,
-                    text: $0.english, isFinal: $0.isFinal, confidence: $0.confidence) })
+                    text: $0.english, isFinal: $0.isFinal, confidence: $0.confidence, recognitionIssue: $0.recognitionIssue) })
             row.contextRevisions = old?.contextRevisions
             if let old, old.english == text {
                 row.chinese = old.chinese; row.translationState = old.translationState; row.edited = old.edited
@@ -224,6 +260,12 @@ struct ParagraphBuffer {
             group.removeAll(keepingCapacity: true)
         }
         for part in parts {
+            if part.recognitionWarning != nil {
+                appendGroup(complete: true)
+                group.append(part)
+                appendGroup(complete: true)
+                continue
+            }
             if let last = group.last, part.start - last.end >= pauseDuration,
                group.allSatisfy(\.isFinal) {
                 boundaries.insert(last.id)

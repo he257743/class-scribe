@@ -4,10 +4,13 @@ import Darwin
 
 @main struct NativeBackendComparison {
     @MainActor static func main() async throws {
-        guard [5, 6].contains(CommandLine.arguments.count), let backend = SpeechBackend(rawValue: CommandLine.arguments[1]) else {
+        guard CommandLine.arguments.count >= 5,
+              CommandLine.arguments.dropFirst(5).allSatisfy({ ["--private", "--pause-test", "--rejection-test"].contains($0) }),
+              let backend = SpeechBackend(rawValue: CommandLine.arguments[1]) else {
             throw ClassScribeError.message("backend audio.wav worker.py report.json required")
         }
         let privateInput = CommandLine.arguments.contains("--private")
+        let rejectionTest = CommandLine.arguments.contains("--rejection-test")
         let pauseTest = CommandLine.arguments.contains("--pause-test")
         setbuf(stdout, nil)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ClassScribe-ASR-comparison-\(UUID())")
@@ -30,8 +33,10 @@ import Darwin
         guard model.translationReady else { throw ClassScribeError.message("Translation assets unavailable") }
         model.speechReady = true
         var firstEnglish: Date?, firstChinese: Date?
+        var observedRejection = false
         let observer = Task { @MainActor in
             while !Task.isCancelled {
+                if model.current?.segments.contains(where: { $0.recognitionWarning != nil }) == true { observedRejection = true }
                 if firstEnglish == nil && model.current?.segments.contains(where: { !$0.english.isEmpty }) == true { firstEnglish = Date() }
                 if firstChinese == nil && model.current?.segments.contains(where: { !$0.chinese.isEmpty }) == true { firstChinese = Date() }
                 try? await Task.sleep(for: .milliseconds(20))
@@ -66,17 +71,28 @@ import Darwin
                 model.current!.segments.dropFirst(rowsBefore).allSatisfy { $0.start >= durationBefore - 0.1 }
         }
         for _ in 0..<600 {
-            if model.current?.segments.isEmpty == false && model.current!.segments.allSatisfy({ $0.translationState == .complete }) { break }
+            if model.current?.segments.isEmpty == false && model.current!.segments.allSatisfy({ $0.translationState == .complete || (rejectionTest && $0.recognitionWarning != nil) }) { break }
             if model.errorMessage != nil { break }
             try await Task.sleep(for: .milliseconds(100))
         }
         observer.cancel(); await observer.value
         let rows = model.current!.segments
-        let complete = !rows.isEmpty && rows.allSatisfy { !$0.isCollectingParagraph && !$0.hasPreviewTranslation && $0.translationState == .complete }
+        let rejected = rows.filter { $0.recognitionWarning != nil }
+        let good = rows.filter { $0.recognitionWarning == nil }
+        let complete = !good.isEmpty && rows.allSatisfy {
+            (rejectionTest && $0.recognitionWarning != nil) ||
+            (!$0.isCollectingParagraph && !$0.hasPreviewTranslation && $0.translationState == .complete)
+        }
+        // A longer reliable result may replace a rejected draft of the same window.
+        // Check that rejection was visible and later fixture speech was translated,
+        // rather than requiring the transient warning to remain forever.
+        let recovered = !rejectionTest || (observedRejection && good.contains {
+            $0.english.lowercased().contains("mutex") && !$0.chinese.isEmpty
+        } && good.map(\.english).joined(separator: " ").lowercased().contains("critical section"))
         let loaded = try model.store!.load().first { $0.id == id }
         var usage = rusage(); getrusage(RUSAGE_SELF, &usage)
         let cpu = Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1_000_000
-        var report: [String: Any] = ["backend": backend.rawValue, "status": complete && model.errorMessage == nil ? "pass" : "fail",
+        var report: [String: Any] = ["backend": backend.rawValue, "status": complete && recovered && model.errorMessage == nil ? "pass" : "fail",
             "input": privateInput ? "private lecture excerpt replayed at wall-clock pace; no human reference" : "synthetic English audio replayed at wall-clock pace through injected capture",
             "microphone_used": false, "audio_seconds": capture.duration, "replayed_runs": pauseTest ? 3 : 1, "startup_seconds": startupSeconds,
             "recognition_drain_seconds": recognitionDrainSeconds,
@@ -86,6 +102,7 @@ import Darwin
             "context_review_enabled": false, "private_classroom_audio_used": privateInput,
             "memory_scope": "Host RSS excludes Apple system service processes. Qwen worker RSS and Metal allocations are separate measurements that can overlap; neither is total system RAM.",
             "error": model.errorMessage ?? ""]
+        if rejectionTest { report["retained_rejected_windows"] = rejected.count; report["rejection_observed"] = observedRejection; report["normal_speech_translated_after_rejection"] = recovered; report["final_rows_saved_without_loss"] = loaded?.segments == rows }
         if let pauseResumePassed { report["real_engine_pause_resume_passed"] = pauseResumePassed }
         if let firstEnglish { report["first_english_seconds"] = firstEnglish.timeIntervalSince(firstCaptureBegin) }
         if let firstChinese { report["first_chinese_seconds"] = firstChinese.timeIntervalSince(firstCaptureBegin) }
@@ -93,7 +110,7 @@ import Darwin
         try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
             .write(to: URL(fileURLWithPath: CommandLine.arguments[4]), options: .atomic)
         await model.finishBeforeQuit(); translator.cancel(); await translator.value
-        guard complete && model.errorMessage == nil && loaded?.segments == rows && pauseResumePassed != false else { throw ClassScribeError.message("Comparison pipeline failed; inspect report") }
+        guard complete && recovered && model.errorMessage == nil && loaded?.segments == rows && pauseResumePassed != false else { throw ClassScribeError.message("Comparison pipeline failed; inspect report") }
         print("PASS: \(backend.rawValue), full capture → ASR → real translation → save/reload")
         if !privateInput { print(rows.map(\.english).joined(separator: " ")) }
     }
