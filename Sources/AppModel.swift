@@ -39,6 +39,9 @@ final class AppModel: ObservableObject {
             Task { await refreshSpeechAvailability() }
         }
     }
+    @Published var qwenRecognitionWindow: QwenRecognitionWindow {
+        didSet { preferences.set(qwenRecognitionWindow.rawValue, forKey: "qwenRecognitionWindow") }
+    }
     @Published var speechReady = false
     @Published var translationReady = false
     @Published var speechPreparing = false
@@ -183,6 +186,7 @@ final class AppModel: ObservableObject {
         self.courseSubject = preferences.string(forKey: "courseSubject") ?? ""
         self.engineFactory = engineFactory
         self.qwenAssets = qwenAssets
+        self.qwenRecognitionWindow = QwenRecognitionWindow(rawValue: preferences.string(forKey: "qwenRecognitionWindow") ?? "") ?? .context
         self.speechBackend = SpeechBackend(rawValue: preferences.string(forKey: "speechBackend") ?? "") ?? .apple
         self.microphoneAccess = microphoneAccess
         self.recordingNow = recordingNow
@@ -411,7 +415,7 @@ final class AppModel: ObservableObject {
 
     func makeSpeechEngine() -> any SpeechRecording {
         if let engineFactory { return engineFactory() }
-        if speechBackend == .qwen { return QwenSpeechEngine() }
+        if speechBackend == .qwen { return QwenSpeechEngine(recognitionWindow: qwenRecognitionWindow) }
         return LocalSpeechEngine()
     }
 

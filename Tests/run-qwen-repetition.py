@@ -3,6 +3,7 @@ from pathlib import Path
 import argparse
 import importlib.util
 import json
+import plistlib
 
 root=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('native_worker_checks',root/'Tests/run-qwen-no-speech.py')
@@ -33,7 +34,7 @@ def main():
         if name=='problem followed by clear English':
             passed=passed and 'mutex' in result['final_text'].lower() and 'critical section' in result['final_text'].lower()
         record(name,result,passed,True)
-    report={'app_version':'1.6.2','all_passed':all(x['passed'] for x in reports),
+    report={'app_version':plistlib.loads((root/'Info.plist').read_bytes())['CFBundleShortVersionString'],'all_passed':all(x['passed'] for x in reports),
         'microphone_used':False,'private_audio_or_text_published':False,'cases':reports}
     (build/'qwen-repetition-regression.json').write_text(json.dumps(report,indent=2)+'\n')
     if not report['all_passed']:raise SystemExit(1)

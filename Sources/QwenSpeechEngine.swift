@@ -34,6 +34,16 @@ struct QwenInstallation: Sendable {
     }
 }
 
+enum QwenRecognitionWindow: String, CaseIterable, Sendable {
+    case context, quick
+    var title: String { self == .context ? "上下文优先" : "快速定稿" }
+    var seconds: Int { self == .context ? 30 : 12 }
+    // At EOF, context mode keeps up to 1.5 seconds of boundary lookahead in
+    // the final window rather than generating a tiny independent tail.
+    var maximumEventDuration: Double { Double(seconds) + (self == .context ? 1.6 : 0.05) }
+    func accepts(duration: Double) -> Bool { duration.isFinite && duration > 0 && duration <= maximumEventDuration }
+}
+
 // A single owned child process. Bounded JSON output; PCM stays in an anonymous
 // pipe. A broken child cannot terminate the app with SIGPIPE.
 final class JSONLineProcess: @unchecked Sendable {
@@ -147,6 +157,7 @@ actor QwenSpeechEngine: SpeechRecording {
     private let capture: any AudioCapturing
     private let installation: QwenInstallation
     private let workerURL: URL?
+    nonisolated let recognitionWindow: QwenRecognitionWindow
     private var child: JSONLineProcess?
     private var inputTask: Task<Void, Never>?
     private var resultsTask: Task<Void, Never>?
@@ -157,8 +168,9 @@ actor QwenSpeechEngine: SpeechRecording {
     private(set) var modelLoadSeconds: Double = 0
     private var problem: String?
 
-    init(capture: any AudioCapturing = MicrophoneCapture(), installation: QwenInstallation = .init(), workerURL: URL? = nil) {
+    init(capture: any AudioCapturing = MicrophoneCapture(), installation: QwenInstallation = .init(), workerURL: URL? = nil, recognitionWindow: QwenRecognitionWindow = .context) {
         self.capture = capture; self.installation = installation
+        self.recognitionWindow = recognitionWindow
         self.workerURL = workerURL ?? Bundle.main.url(forResource: "QwenASRWorker", withExtension: "py")
     }
     func start(audioURL: URL?, contextualWords: [String], offset: Double,
@@ -175,7 +187,8 @@ actor QwenSpeechEngine: SpeechRecording {
         try process.launch(executable: installation.python,
             arguments: ["-I", workerURL.path, "--model", installation.model.path],
             environment: installation.environment, logURL: installation.root.appendingPathComponent("worker.log"))
-        try process.write(JSONSerialization.data(withJSONObject: ["terms": Array(contextualWords.prefix(100))]) + Data([10]))
+        try process.write(JSONSerialization.data(withJSONObject: ["terms": Array(contextualWords.prefix(100)),
+            "window_seconds": recognitionWindow.seconds] as [String: Any]) + Data([10]))
         resultsTask = Task { [self] in
             do {
                 var stoppedNormally = false
@@ -189,7 +202,7 @@ actor QwenSpeechEngine: SpeechRecording {
                     case "result", "rejected":
                         guard let start = event.start, let end = event.end, let text = event.text,
                               start.isFinite, end.isFinite, start >= 0, end > start,
-                              end - start <= 15, !text.isEmpty, text.count <= 6000 else {
+                              recognitionWindow.accepts(duration: end - start), !text.isEmpty, text.count <= 6000 else {
                             throw ClassScribeError.message("千问识别返回了无效片段，已保留原音。")
                         }
                         let issue = event.issue ?? RecognitionSanity.issue(text, seconds: end - start)

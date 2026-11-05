@@ -1,6 +1,6 @@
 {
-  "checked_on": "2026-11-05",
-  "app_version": "1.6.2",
+  "checked_on": "2026-11-06",
+  "app_version": "1.7.0",
   "environment": {
     "architecture": "arm64",
     "macos": "26.4.1",
@@ -16,15 +16,16 @@
     "paragraphs": 30,
     "live_preview": 30,
     "pause": 27,
-    "total": 218,
+    "total": 228,
     "context_review": 47,
     "speech_backend": 21,
     "prompt_echo": 13,
-    "repetition": 13
+    "repetition": 13,
+    "recognition_window": 10
   },
   "regression_data": "temporary fixtures; injected recording backend; no microphone",
-  "native_preview": "pass; scripted ASR text through actual TranslationSession and application queue",
-  "native_audio_pipeline": "pass; locally synthesized English file through SpeechAnalyzer, paragraph queue, TranslationSession and save/reload",
+  "native_preview": "historical pass; scripted text through actual TranslationSession and queue; 1.7 shared queues also covered by current native application pipelines",
+  "native_audio_pipeline": "historical optional pipeline pass; current1.7 native backend comparisons and private excerpt pipelines also passed",
   "real_microphone_used": false,
   "real_classroom_accuracy_evaluated": false,
   "real_microphone_pause_evaluated": false,
@@ -35,8 +36,8 @@
   "context_fixtures_used_during_development": true,
   "independent_context_accuracy_benchmark": false,
   "context_service_owned_start_and_shutdown": "pass; repeated real-model fixtures after stopping separately started test server; no owned process remained",
-  "python_audio_scheduler_tests": 19,
-  "combined_logic_checks": 237,
+  "python_audio_scheduler_tests": 25,
+  "combined_logic_checks": 253,
   "native_backend_comparison": "pass; same synthetic paced audio through real Apple/Qwen ASR, Apple Translation, app scheduler and save/reload; see backend-comparison.json",
   "private_lecture_comparison": {
     "status": "pass",
@@ -44,15 +45,19 @@
     "both_engines_saved_and_reloaded": true,
     "human_reference_available": false,
     "classroom_accuracy_established": false,
-    "audio_and_transcript_published": false
+    "audio_and_transcript_published": false,
+    "app_version": "1.6.0 (historical)"
   },
   "qwen_asr_cold_setup": "historical 1.6.0 pass; official Python download and SHA verification, public PyPI dependencies, reused SHA-verified weights, offline ASR and normal shutdown; 1.6.1 WebRTC addition verified through normal upgrade",
   "qwen_asr_real_pause_resume": "pass; synthetic file capture, real Qwen worker, no microphone",
   "prompt_echo_and_non_speech_regression": "pass; original failure reproduced with saved private audio; fixed worker passed same audio, digital silence, white noise, fan hum and clear English; see prompt-echo-regression.json",
   "qwen_asr_runtime_upgrade": "pass; normal preparation entry installed WebRTC dependency, reused SHA-verified weights and marked runtime_revision 2",
   "native_prompt_echo_ui": "historical 1.6.1 pass; synthetic real SwiftUI render",
-  "installed_app_copies": "pass; 1.6.2 build 9 in Applications and external-drive output; identical signed bundles; original records and audio unchanged",
+  "installed_app_copies": "pass; 1.7.0 build 10 in Applications and external-drive output; identical signed bundles; original records and audio unchanged",
   "qwen_runaway_generation_regression": "pass; same private audio reproduced old failure; fixed worker rejected unsafe snapshot and continued normal English; statistics in repetition-regression.json",
   "native_runaway_recovery_pipeline": "pass; real Qwen worker, injected saved audio, actual Apple Translation, observed rejection then normal speech, save/reload; see repetition-pipeline.json",
-  "native_repetition_ui": "pass; real SwiftUI offscreen render using visibly labeled synthetic content; warning and retained-original disclosure visually checked"
+  "native_repetition_ui": "pass; real SwiftUI offscreen render using visibly labeled synthetic content; warning and retained-original disclosure visually checked",
+  "native_context_window_optimization": "pass; 8 paired existing lecture excerpts plus 2 low-information excerpts; both real application modes passed recognition, Apple Translation and save/reload; see lecture-optimization.json",
+  "native_complete_token_decoding": "pass; split UTF-8 unit fixtures plus actual installed tokenizer roundtrip; see token-decoding.json",
+  "native_prompt_echo_and_repetition_protection": "pass; explicit30-second configuration, same saved failure audio and clear English recovery; see repetition-1.7.json"
 }

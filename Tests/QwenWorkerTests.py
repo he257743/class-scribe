@@ -4,9 +4,13 @@ import math
 from pathlib import Path
 import sys
 import unittest
-from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'Resources'))
-from QwenASRWorker import Segmenter, JobQueue, AudioJob, RATE, SpeechGate, looks_like_prompt_echo, model_events, recognition_issue, recognize_window, token_budget
+from QwenASRWorker import Segmenter, JobQueue, AudioJob, RATE, SpeechGate, looks_like_prompt_echo, model_events, recognition_issue, recognize_window, token_budget, recognition_window_setting
+
+class FixtureTokenizer:
+    def __init__(self, pieces):self.pieces = pieces
+    def decode(self, ids, skip_special_tokens=True):
+        return b''.join(self.pieces[int(i)] for i in ids).decode('utf-8', errors='replace')
 
 class SegmenterTests(unittest.TestCase):
     def test_irregular_packet_sizes_preserve_every_sample_once(self):
@@ -67,11 +71,11 @@ class SegmenterTests(unittest.TestCase):
 class RecognitionGuardTests(unittest.TestCase):
     def test_asr_never_receives_an_instruction_or_glossary_prompt(self):
         class Model:
-            def stream_transcribe(self, audio, **kwargs):
+            def stream_generate(self, audio, **kwargs):
                 self.options = kwargs
-                return iter(['recognized speech'])
+                return iter([(1, None)])
         model = Model()
-        self.assertEqual(list(model_events(model, [0.0])), ['recognized speech'])
+        self.assertEqual(list(model_events(model, [0.0])), [(1, None)])
         self.assertIsNone(model.options['system_prompt'])
         self.assertNotIn('Technical vocabulary', str(model.options))
 
@@ -131,13 +135,14 @@ class RunawayRecognitionTests(unittest.TestCase):
             calls = 0
             closed = 0
             emitted = 0
-            def stream_transcribe(self,audio,**kwargs):
+            def stream_generate(self,audio,**kwargs):
                 self.calls += 1
                 try:
                     words = ['from '] * 1000 if self.calls == 1 else ['A ', 'mutex ', 'protects ', 'the ', 'resource.']
-                    for word in words:
+                    self._tokenizer = FixtureTokenizer([w.encode() for w in words])
+                    for index in range(len(words)):
                         self.emitted += 1
-                        yield SimpleNamespace(text=word)
+                        yield index, None
                 finally:
                     self.closed += 1
         model=Model();audio=[0.01] * (3 * RATE)
@@ -151,21 +156,76 @@ class RunawayRecognitionTests(unittest.TestCase):
 
     def test_reported_budget_exhaustion_is_not_a_normal_result(self):
         class Model:
-            def stream_transcribe(self,audio,**kwargs):
-                yield SimpleNamespace(text='Some words',generation_tokens=kwargs['max_tokens'])
+            def stream_generate(self,audio,**kwargs):
+                self._tokenizer = FixtureTokenizer([b'.'] * kwargs['max_tokens'])
+                for index in range(kwargs['max_tokens']):yield index, None
         self.assertEqual(recognize_window(Model(),[0.0] * RATE)['issue'],'generationLimit')
 
     def test_cancellation_closes_the_generation_iterator(self):
         class Model:
             closed = False
-            def stream_transcribe(self,audio,**kwargs):
+            def stream_generate(self,audio,**kwargs):
                 try:
-                    yield SimpleNamespace(text='word')
+                    self._tokenizer = FixtureTokenizer([b'word'])
+                    yield 0, None
                 finally:
                     self.closed=True
         model=Model()
         with self.assertRaisesRegex(RuntimeError,'overloaded'):
             recognize_window(model,[0.1]*RATE,lambda:RuntimeError('overloaded'))
         self.assertTrue(model.closed)
+
+class ContextWindowTests(unittest.TestCase):
+    def test_thirty_second_stop_keeps_one_complete_window(self):
+        source = array.array('f', (0.1 * math.sin(i * .1) for i in range(30 * RATE))).tobytes()
+        segmenter = Segmenter(30)
+        jobs = segmenter.feed(source)
+        self.assertFalse(any(x.final for x in jobs))
+        finals = segmenter.finish()
+        self.assertEqual(len(finals), 1)
+        self.assertEqual(finals[0].pcm, source)
+        self.assertEqual(finals[0].end, 30 * RATE)
+
+    def test_context_windows_preserve_all_samples_with_lookahead(self):
+        source = array.array('f', (0.1 * math.sin(i * .13) for i in range(69 * RATE + 171))).tobytes()
+        segmenter = Segmenter(30);jobs=[]
+        for offset in range(0, len(source), 7913):jobs.extend(segmenter.feed(source[offset:offset+7913]))
+        jobs.extend(segmenter.finish());finals=[x for x in jobs if x.final]
+        self.assertEqual(b''.join(x.pcm for x in finals),source)
+        self.assertTrue(all(x.end-x.start<=31.5*RATE for x in finals))
+        self.assertTrue(all(a.end==b.start for a,b in zip(finals,finals[1:])))
+        self.assertTrue(any(not x.final and x.end==3*RATE for x in jobs))
+
+    def test_context_mode_does_not_force_two_second_quiet_chunks(self):
+        source=array.array('f',[.0001]*(9*RATE)).tobytes()
+        segmenter=Segmenter(30);jobs=segmenter.feed(source)+segmenter.finish()
+        finals=[x for x in jobs if x.final]
+        self.assertEqual(finals[0].end,6*RATE)
+        self.assertEqual(b''.join(x.pcm for x in finals),source)
+
+    def test_only_supported_window_settings_are_accepted(self):
+        self.assertEqual(recognition_window_setting({}),12)
+        self.assertEqual(recognition_window_setting({'window_seconds':30}),30)
+        self.assertEqual(recognition_window_setting({'window_seconds':12}),12)
+        for value in [True,0,13,30.0,100,None,'30']:
+            with self.assertRaises(ValueError):recognition_window_setting({'window_seconds':value})
+
+    def test_complete_prefix_decoding_preserves_split_utf8(self):
+        class Model:
+            _tokenizer=FixtureTokenizer([b'\xe9',b'\xbe\x98'])
+            def stream_generate(self,audio,**kwargs):
+                yield 0,None
+                yield 1,None
+        result=recognize_window(Model(),[.1]*RATE)
+        self.assertEqual(result['text'],'龘')
+        self.assertIsNone(result['issue'])
+
+    def test_incomplete_final_character_is_reviewed(self):
+        class Model:
+            _tokenizer=FixtureTokenizer([b'\xe9'])
+            def stream_generate(self,audio,**kwargs):yield 0,None
+        result=recognize_window(Model(),[.1]*RATE)
+        self.assertEqual(result['issue'],'invalidEncoding')
+        self.assertEqual(result['text'],'\ufffd')
 
 if __name__ == '__main__':unittest.main()

@@ -24,12 +24,13 @@ struct RecognitionPart: Codable, Equatable {
 }
 
 enum RecognitionIssue: String, Codable, Sendable {
-    case promptEcho, repetition, generationLimit, emptyResult
+    case promptEcho, repetition, generationLimit, emptyResult, invalidEncoding
     var message: String {
         switch self {
         case .promptEcho: return "疑似识别器回显术语提示，不作为课堂内容。请回听原音核对。"
         case .repetition: return "疑似识别器循环生成重复文字，请回听原音核对；已暂停翻译本段。"
         case .generationLimit: return "识别输出超过本段合理长度，可能不完整。请回听原音核对。"
+        case .invalidEncoding: return "识别结果含有损坏字符，请回听原音核对；已保留原文。"
         case .emptyResult: return "本段最终未取得可靠识别，已保留草稿供核查。请回听原音。"
         }
     }
@@ -55,6 +56,7 @@ enum RecognitionSanity {
                 }
             }
         }
+        if text.contains("\u{FFFD}") { return .invalidEncoding }
         if words.count > max(48, Int(ceil(max(0, seconds) * 12))) || text.count > 6000 { return .generationLimit }
         return nil
     }

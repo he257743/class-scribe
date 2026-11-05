@@ -26,7 +26,7 @@ def echo(text):
     value=' '.join(text.lower().split())
     return 'transcribe the english lecture faithfully' in value and 'technical vocabulary:' in value
 
-def run(python,model,worker,pcm,terms,log,pace=True):
+def run(python,model,worker,pcm,terms,log,pace=True,window_seconds=30):
     events=[];messages=queue.Queue()
     env=os.environ.copy();env.update(HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',HF_HUB_DISABLE_TELEMETRY='1')
     with log.open('w') as errors:
@@ -38,7 +38,7 @@ def run(python,model,worker,pcm,terms,log,pace=True):
             except Exception as error:messages.put({'kind':'error','message':str(error)})
         reader=threading.Thread(target=read,daemon=True);reader.start()
         try:
-            p.stdin.write((json.dumps({'terms':terms})+'\n').encode());p.stdin.flush()
+            p.stdin.write((json.dumps({'terms':terms,'window_seconds':window_seconds})+'\n').encode());p.stdin.flush()
             ready=messages.get(timeout=90)
             if ready['kind']!='ready':raise RuntimeError(ready)
             began=time.monotonic()

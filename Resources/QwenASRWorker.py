@@ -30,7 +30,11 @@ class AudioJob:
 
 class Segmenter:
     """Bounded, non-overlapping windows; previews are replaceable snapshots."""
-    def __init__(self):
+    def __init__(self, max_seconds=12):
+        if type(max_seconds) is not int or max_seconds not in (12, 30):
+            raise ValueError('Unsupported recognition window')
+        self.max_seconds = max_seconds
+        self.context = max_seconds == 30
         self.buffer = bytearray()
         self.remainder = bytearray()
         self.start = 0
@@ -65,13 +69,14 @@ class Segmenter:
             self.buffer.extend(block)
             self.quiet = self.quiet + FRAME if self.energy(block) < 0.004 else 0
             length = len(self.buffer) // 4
-            if length >= 4 * RATE and self.quiet >= int(0.6 * RATE):
-                count = max(2 * RATE, length - self.quiet + int(0.2 * RATE))
+            if length >= (8 if self.context else 4) * RATE and self.quiet >= int(0.6 * RATE):
+                count = max((6 if self.context else 2) * RATE, length - self.quiet + int(0.2 * RATE))
                 jobs.append(self._commit(min(count, length)))
-            elif length >= 12 * RATE:
+            elif length >= int((self.max_seconds + (1.5 if self.context else 0)) * RATE):
                 # Cut at a low-energy frame near the end. Carry the tail intact;
                 # do not overlap windows or remove matching text heuristically.
-                choices = range(length - int(1.5 * RATE), length, FRAME)
+                target = self.max_seconds * RATE
+                choices = range(target - int(1.5 * RATE), target, FRAME)
                 count = min(choices, key=lambda i: self.energy(self.buffer[i * 4:(i + FRAME) * 4]))
                 jobs.append(self._commit(count))
             elif length >= 3 * RATE and length - self.preview_at >= 3 * RATE:
@@ -159,7 +164,7 @@ class SpeechGate:
         voiced, longest = self.voiced_frames(pcm)
         return voiced >= 8 and longest >= 5
 
-def recognition_issue(text, seconds):
+def recognition_issue(text, seconds, final=True):
     if looks_like_prompt_echo(text):
         return 'promptEcho'
     words = re.findall(r"[^\W_]+(?:['’][^\W_]+)*", text.casefold())
@@ -172,6 +177,8 @@ def recognition_issue(text, seconds):
             span = matched + width
             if span >= minimum and span // width >= 8:
                 return 'repetition'
+    if final and '\ufffd' in text:
+        return 'invalidEncoding'
     if len(words) > max(48, math.ceil(max(0, seconds) * 12)) or len(text) > 6000:
         return 'generationLimit'
     return None
@@ -180,38 +187,46 @@ def token_budget(seconds):
     return min(384, max(64, math.ceil(seconds * 16) + 32))
 
 def model_events(model, audio, max_tokens=384):
-    # ASR context is not an instruction-following chat prompt.
-    return model.stream_transcribe(audio, language='English', max_tokens=max_tokens,
-        temperature=0.0, chunk_duration=15, verbose=False, system_prompt=None)
+    # The pinned generator defaults to greedy argmax when sampler is None.
+    # Decode the complete token prefix: decoding each token separately can
+    # corrupt characters whose UTF-8 bytes span multiple tokens.
+    return model.stream_generate(audio, language='English', max_tokens=max_tokens,
+        sampler=None, verbose=False, system_prompt=None)
 
 def recognize_window(model, audio, cancelled=lambda: None):
     seconds = len(audio) / RATE
     limit = token_budget(seconds)
-    text = ''; tokens = 0; first = None; issue = None
+    text = ''; ids = []; first = None; issue = None
     began = time.monotonic()
     events = model_events(model, audio, max_tokens=limit)
     try:
-        for event in events:
+        for token, _ in events:
             problem = cancelled()
             if problem:
                 raise problem
-            if event.text:
-                tokens += 1
-                text += event.text
-                if first is None:
-                    first = time.monotonic() - began
-                issue = recognition_issue(text, seconds)
-                if issue:
-                    break
-            tokens = max(tokens, getattr(event, 'generation_tokens', 0) or 0)
+            ids.append(int(token))
+            text = model._tokenizer.decode(ids, skip_special_tokens=True)
+            if first is None:
+                first = time.monotonic() - began
+            # A prefix may end halfway through a multibyte character. Only the
+            # completed decode is checked for replacement characters.
+            issue = recognition_issue(text, seconds, final=False)
+            if issue:
+                break
     finally:
         if hasattr(events, 'close'):
             events.close()
-    if tokens >= limit:
+    if len(ids) >= limit:
         issue = issue or 'generationLimit'
-    # Publish only checked snapshots, not unchecked individual decode tokens.
+    issue = issue or recognition_issue(text, seconds)
     return dict(text=text[:6000].strip(), issue=issue, first_token_seconds=first,
                 processing_seconds=time.monotonic() - began)
+
+def recognition_window_setting(settings):
+    value = settings.get('window_seconds', 12)
+    if type(value) is not int or value not in (12, 30):
+        raise ValueError('Invalid recognition window setting')
+    return value
 
 def main():
     parser = argparse.ArgumentParser()
@@ -225,6 +240,7 @@ def main():
             output.flush()
     try:
         settings = json.loads(sys.stdin.buffer.readline(65536))
+        window_seconds = recognition_window_setting(settings)
         terms = settings.get('terms', [])
         if not isinstance(terms, list) or len(terms) > 100 or any(not isinstance(x, str) or len(x) > 80 for x in terms):
             raise ValueError('Invalid terminology settings')
@@ -242,7 +258,7 @@ def main():
         emit(kind='ready', model_load_seconds=time.monotonic() - began)
         jobs = JobQueue()
         def ingest():
-            segmenter = Segmenter()
+            segmenter = Segmenter(window_seconds)
             try:
                 while True:
                     block = sys.stdin.buffer.read1(65536)

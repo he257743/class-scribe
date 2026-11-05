@@ -143,6 +143,7 @@ struct ContentView: View {
                     Text("简体中文").fontWeight(.medium)
                     Text("·  " + model.speechBackend.title).foregroundStyle(.secondary)
                     Text("·  \(model.translationStyle.title)").foregroundStyle(.secondary)
+                    if model.speechBackend == .qwen { Text("·  " + model.qwenRecognitionWindow.title).foregroundStyle(.secondary) }
                 }.font(.system(size: 12)).foregroundStyle(accent)
             }
             Spacer(minLength: 6)
@@ -375,11 +376,22 @@ struct ContentView: View {
                 "使用本机 Qwen3-ASR 识别英语，再交给苹果模型翻译。约每 3 秒尝试更新草稿，停顿或分块后定稿；这不是完成延迟承诺。首次开始需要加载模型，看到“正在听课”后再开始讲述。")
                 .font(.caption).foregroundStyle(.secondary)
             if model.speechBackend == .qwen {
+                Picker("识别节奏", selection: $model.qwenRecognitionWindow) {
+                    ForEach(QwenRecognitionWindow.allCases, id: \.self) { mode in Text(mode.title).tag(mode) }
+                }.disabled(model.busy || model.preparing)
+                Text(model.qwenRecognitionWindow == .context ?
+                    "约每 3 秒更新草稿，结合约 30 秒语音修订后定稿。整段定稿较晚，短句草稿和中文预览仍会更新。" :
+                    "使用约 12 秒的较短语音窗口，更早定稿。数字和专业词可能缺少足够上下文。")
+                    .font(.caption).foregroundStyle(.secondary)
                 Text("识别模型约 1.6GB，另需运行组件。与上下文校对模型用途不同，同时开启会增加资源占用。")
                     .font(.caption).foregroundStyle(.secondary)
                 Text(model.speechStatus).font(.caption).foregroundStyle(.secondary)
                 Button(model.speechReady ? "识别组件已准备" : "准备千问识别") { model.prepareLanguages() }
                     .disabled(model.speechReady || model.busy || model.preparing || model.demoMode)
+            }
+            if model.busy {
+                Text(model.phase == .paused ? "已暂停听课；点击“结束听课”后可修改识别设置。" : "正在听课或收尾；结束听课后可修改识别设置。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Divider()
             Picker("翻译方式", selection: $model.translationStyle) {

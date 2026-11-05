@@ -1,0 +1,8 @@
+{
+  "fixture": "synthetic tokenizer roundtrip, not speech accuracy",
+  "source": "阈值、互斥、龘、IPv4。",
+  "previous_per_token_decode": "阈值、互斥、��、IPv4。",
+  "optimized_decode": "阈值、互斥、龘、IPv4。",
+  "passed": true,
+  "microphone_used": false
+}

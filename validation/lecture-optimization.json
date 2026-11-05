@@ -1,0 +1,38 @@
+{
+  "app_version": "1.7.0",
+  "paired_lecture_excerpts": 8,
+  "additional_low_information_excerpts": 2,
+  "seconds_per_excerpt": 30,
+  "all_workers_stopped_normally": true,
+  "errors": 0,
+  "numeric_landmark_in_context_output": true,
+  "replacement_characters_in_accepted_outputs": 0,
+  "human_word_level_reference": false,
+  "classroom_accuracy_established": false,
+  "known_remaining_limitations": [
+    "Some technical terms remain questionable.",
+    "Low-information audio can still produce short uncertain captions.",
+    "Chinese conversation is not an English-to-Chinese translation benchmark."
+  ],
+  "private_audio_or_transcript_published": false,
+  "microphone_used": false,
+  "application_pipelines": {
+    "context": {
+      "status": "pass",
+      "recognition_window_seconds": 30,
+      "max_recognition_part_seconds": 29.951125,
+      "saved_and_reloaded": true,
+      "final_translation_complete": true,
+      "numeric_landmark_present": true
+    },
+    "quick": {
+      "status": "pass",
+      "recognition_window_seconds": 12,
+      "max_recognition_part_seconds": 10.880000000000003,
+      "saved_and_reloaded": true,
+      "final_translation_complete": true,
+      "numeric_landmark_present": false
+    }
+  },
+  "checked_on": "2026-11-06"
+}

@@ -5,10 +5,11 @@ import Darwin
 @main struct NativeBackendComparison {
     @MainActor static func main() async throws {
         guard CommandLine.arguments.count >= 5,
-              CommandLine.arguments.dropFirst(5).allSatisfy({ ["--private", "--pause-test", "--rejection-test"].contains($0) }),
+              CommandLine.arguments.dropFirst(5).allSatisfy({ ["--private", "--pause-test", "--rejection-test", "--quick-qwen"].contains($0) }),
               let backend = SpeechBackend(rawValue: CommandLine.arguments[1]) else {
             throw ClassScribeError.message("backend audio.wav worker.py report.json required")
         }
+        let qwenWindow: QwenRecognitionWindow = CommandLine.arguments.contains("--quick-qwen") ? .quick : .context
         let privateInput = CommandLine.arguments.contains("--private")
         let rejectionTest = CommandLine.arguments.contains("--rejection-test")
         let pauseTest = CommandLine.arguments.contains("--pause-test")
@@ -18,10 +19,11 @@ import Darwin
         let prefs = UserDefaults(suiteName: suite)!
         defer { prefs.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
         prefs.set(backend.rawValue, forKey: "speechBackend")
+        prefs.set(qwenWindow.rawValue, forKey: "qwenRecognitionWindow")
         prefs.set(false, forKey: "contextEnabled")
         prefs.set(false, forKey: "keepAudio")
         let capture = FileAudioCapture(url: URL(fileURLWithPath: CommandLine.arguments[2]))
-        let qwen = QwenSpeechEngine(capture: capture, workerURL: URL(fileURLWithPath: CommandLine.arguments[3]))
+        let qwen = QwenSpeechEngine(capture: capture, workerURL: URL(fileURLWithPath: CommandLine.arguments[3]), recognitionWindow: qwenWindow)
         let engine: any SpeechRecording = backend == .qwen ? qwen : LocalSpeechEngine(capture: capture)
         let model = AppModel(storageRoot: root, preferences: prefs, engineFactory: { engine }, microphoneAccess: { true })
         model.newLecture()
@@ -29,8 +31,11 @@ import Darwin
         let translation = TranslationSession(installedSource: Locale.Language(identifier: "en"), target: Locale.Language(identifier: "zh-Hans"))
         let translator = Task { await model.runTranslation(using: translation) }
         defer { translator.cancel() }
-        for _ in 0..<200 { if model.translationReady { break }; try await Task.sleep(for: .milliseconds(50)) }
-        guard model.translationReady else { throw ClassScribeError.message("Translation assets unavailable") }
+        for _ in 0..<1200 {
+            if model.translationReady || model.errorMessage != nil { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        guard model.translationReady else { throw ClassScribeError.message(model.errorMessage ?? "Translation preparation timed out: " + model.translationStatus) }
         model.speechReady = true
         var firstEnglish: Date?, firstChinese: Date?
         var observedRejection = false
@@ -103,6 +108,11 @@ import Darwin
             "memory_scope": "Host RSS excludes Apple system service processes. Qwen worker RSS and Metal allocations are separate measurements that can overlap; neither is total system RAM.",
             "error": model.errorMessage ?? ""]
         if rejectionTest { report["retained_rejected_windows"] = rejected.count; report["rejection_observed"] = observedRejection; report["normal_speech_translated_after_rejection"] = recovered; report["final_rows_saved_without_loss"] = loaded?.segments == rows }
+        if backend == .qwen {
+            report["recognition_window"] = qwenWindow.rawValue
+            report["recognition_window_seconds"] = qwenWindow.seconds
+            report["max_recognition_part_seconds"] = rows.flatMap { $0.recognitionParts ?? [] }.map { $0.end - $0.start }.max() ?? 0
+        }
         if let pauseResumePassed { report["real_engine_pause_resume_passed"] = pauseResumePassed }
         if let firstEnglish { report["first_english_seconds"] = firstEnglish.timeIntervalSince(firstCaptureBegin) }
         if let firstChinese { report["first_chinese_seconds"] = firstChinese.timeIntervalSince(firstCaptureBegin) }
