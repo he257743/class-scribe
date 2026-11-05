@@ -1,0 +1,55 @@
+# macOS and editors
+.DS_Store
+._*
+.vscode/
+.idea/
+*.swp
+
+# Local builds, exported artifacts, cached assets, and release backups
+build/
+dist/
+outputs/
+DerivedData/
+.build/
+*.app/
+*.dSYM/
+*.zip
+*.log
+
+# Classroom recordings, transcripts, generated documents, and screenshots
+*.caf
+*.m4a
+*.mp3
+*.wav
+*.aiff
+*.f32
+*.docx
+*.pdf
+记录/
+录音/
+recordings/
+transcripts/
+user-data/
+
+# Personal workflow state and internal implementation notes
+STATE.json
+IMPLEMENTATION.md
+
+# Models and development environments (not needed by this native app)
+models/
+*.safetensors
+*.npz
+.venv/
+venv/
+__pycache__/
+
+# Local credentials and signing material
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.key
+*.mobileprovision
+*.provisionprofile
+xcuserdata/

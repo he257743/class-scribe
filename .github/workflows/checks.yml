@@ -1,0 +1,34 @@
+name: Build and regression checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Show toolchain
+        run: |
+          uname -m
+          sw_vers -productVersion
+          xcrun swiftc --version
+          xcrun --sdk macosx --show-sdk-version
+      - name: Build app
+        run: zsh build.sh
+      - name: Run isolated regression checks
+        run: zsh Tests/run.sh
+      - name: Verify portable ZIP
+        run: python3 Tools/VerifyPackage.py dist/听课译记.zip

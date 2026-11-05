@@ -1,0 +1,29 @@
+{
+  "checked_on": "2026-11-05",
+  "app_version": "1.4.0",
+  "environment": {
+    "architecture": "arm64",
+    "macos": "26.4.1",
+    "swift": "Apple Swift version 6.2 (swiftlang-6.2.0.19.9 clang-1700.3.19.1)",
+    "macos_sdk": "26.0"
+  },
+  "app_build": "pass",
+  "ad_hoc_codesign_verification": "pass",
+  "zip_structure_utf8_and_executable_permissions": "pass",
+  "regression_checks": {
+    "transcript": 16,
+    "deletion": 21,
+    "paragraphs": 30,
+    "live_preview": 30,
+    "pause": 27,
+    "total": 124
+  },
+  "regression_data": "temporary fixtures; injected recording backend; no microphone",
+  "native_preview": "pass; scripted ASR text through actual TranslationSession and application queue",
+  "native_audio_pipeline": "pass; locally synthesized English file through SpeechAnalyzer, paragraph queue, TranslationSession and save/reload",
+  "real_microphone_used": false,
+  "real_classroom_accuracy_evaluated": false,
+  "real_microphone_pause_evaluated": false,
+  "long_duration_classroom_stability_evaluated": false,
+  "apple_notarized": false
+}
