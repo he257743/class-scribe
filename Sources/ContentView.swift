@@ -224,7 +224,9 @@ struct ContentView: View {
                             ForEach(model.current?.segments ?? []) { segment in
                                 TranscriptRow(item: segment, recordingActive: model.busy && model.phase != .paused,
                                     livePreviewEnabled: model.liveChinesePreview,
-                                    editingEnabled: !model.busy && !model.demoMode) { editing = segment }
+                                    editingEnabled: !model.busy && !model.demoMode,
+                                    edit: { editing = segment },
+                                    restore: { model.edit(segment.id, english: segment.english, chinese: segment.chinese) })
                                     .id(segment.id)
                             }
                             Color.clear.frame(height: 1).id("end")
@@ -338,6 +340,13 @@ struct ContentView: View {
                 Spacer()
                 Toggle("跟随最新", isOn: $model.autoScroll).toggleStyle(.checkbox)
             }.font(.system(size: 10)).foregroundStyle(.secondary)
+            if model.contextEnabled && !model.demoMode {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                    Text(model.contextStatus).lineLimit(2)
+                    Spacer()
+                }.font(.caption2).foregroundStyle(.secondary)
+            }
         }.padding(.horizontal, 27).padding(.vertical, 18)
     }
 
@@ -353,6 +362,7 @@ struct ContentView: View {
     }
 
     private var preferences: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 18) {
             Text("翻译与收音").font(.headline)
             Picker("翻译方式", selection: $model.translationStyle) {
@@ -379,14 +389,43 @@ struct ContentView: View {
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
             Text("课堂术语提示").font(.subheadline.weight(.medium))
-            Text("用逗号或换行分隔，帮助识别人名和专业词。下次开始收音时生效。")
+            Text("用逗号或换行分隔，也可写 mutex=互斥锁。下次开始收音时生效。")
                 .font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $model.contextualWords).font(.system(size: 12)).frame(height: 95)
                 .padding(6).background(surface, in: RoundedRectangle(cornerRadius: 7)).disabled(model.busy)
+            Picker("课程领域", selection: $model.courseDomain) {
+                ForEach(CourseDomain.allCases, id: \.self) { domain in Text(domain.title).tag(domain) }
+            }.disabled(model.busy || model.contextPreparing)
+            TextField("课程主题（可选）", text: $model.courseSubject)
+                .textFieldStyle(.roundedBorder).disabled(model.busy || model.contextPreparing)
+            Divider()
+            Toggle("结合后文校对术语和译文", isOn: $model.contextEnabled)
+                .disabled(model.demoMode || model.contextPreparing)
+            if model.contextEnabled {
+                Text("在本机回看最近约 90 秒内容，校订会稍后更新。原始识别和修订依据会保留；模型也可能判断错误。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Picker("上下文模型", selection: $model.contextModel) {
+                    ForEach(ContextModel.allCases, id: \.self) { choice in Text(choice.title).tag(choice) }
+                }.disabled(model.busy || model.contextPreparing || model.contextWorking)
+                Text("首次还需约 187MB 运行组件。较大模型更占内存和算力，可随时关闭校对。")
+                    .font(.caption).foregroundStyle(.secondary)
+                if model.contextPreparing { ProgressView(value: model.contextProgress) }
+                Text(model.contextStatus).font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button(model.contextPreparing ? "正在准备…" : "准备上下文模型") { model.prepareContextModel() }
+                        .disabled(model.contextPreparing || model.busy || model.demoMode)
+                    if model.contextPreparing { Button("取消准备") { model.cancelContextPreparation() } }
+                    if model.contextReady {
+                        Button("校对最近内容") { model.retryContextReview() }
+                            .disabled(model.contextWorking || !model.hasContent || model.demoMode)
+                    }
+                }
+            }
             Text("原音和记录保存在本机“应用程序支持 / ClassScribe”目录。")
                 .font(.caption).foregroundStyle(.secondary)
             Button("打开保存文件夹") { model.openRecords() }
-        }.padding(23).frame(width: 340)
+        }.padding(23)
+        }.frame(width: 390, height: 650)
     }
 
     private var help: some View {
@@ -413,6 +452,7 @@ private struct TranscriptRow: View {
     var livePreviewEnabled: Bool
     var editingEnabled: Bool
     var edit: () -> Void
+    var restore: () -> Void = {}
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack(spacing: 9) {
@@ -426,24 +466,39 @@ private struct TranscriptRow: View {
                     .buttonStyle(.borderless).disabled(!editingEnabled).help("核对并编辑本段")
             }
             HStack(alignment: .top, spacing: 24) {
-                Text(item.english).font(.system(size: 17)).lineSpacing(5)
+                Text(item.presentedEnglish).font(.system(size: 17)).lineSpacing(5)
                     .foregroundStyle(item.isFinal ? ink : ink.opacity(0.72))
                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                 VStack(alignment: .leading, spacing: 7) {
-                    if !item.chinese.isEmpty {
-                        Text(item.chinese).font(.system(size: 17)).lineSpacing(5).textSelection(.enabled)
+                    if !item.presentedChinese.isEmpty {
+                        Text(item.presentedChinese).font(.system(size: 17)).lineSpacing(5).textSelection(.enabled)
                     } else {
                         Text(item.isCollectingParagraph ? (livePreviewEnabled ? "正在生成实时中文预览…" : "正在收集这一段，停顿后显示整段中文…") :
                             (item.translationState == .failed ? "翻译未完成，可点击下方重试" : "等待本机翻译…"))
                             .font(.system(size: 13)).foregroundStyle(.secondary)
                     }
-                    if item.hasPreviewTranslation {
+                    if item.activeContextRevision != nil {
+                        Text("上下文校订 · 原始识别可在下方查看").font(.caption2).foregroundStyle(accent)
+                    } else if item.hasPreviewTranslation {
                         Text(item.isCollectingParagraph ? "中文预览 · 随上下文更新" : "中文预览 · 等待整段定稿")
                             .font(.caption2).foregroundStyle(accent)
                     } else if item.translationState == .translating && !item.chinese.isEmpty {
                         Text("译文更新中").font(.caption2).foregroundStyle(.secondary)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let revision = item.contextRevisions?.last {
+                DisclosureGroup(item.activeContextRevision == nil ? "查看校订记录" : "查看原始识别与校订依据") {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("原始英文：" + revision.sourceEnglish)
+                        if !revision.sourceChinese.isEmpty { Text("初始译文：" + revision.sourceChinese) }
+                        Text("校订依据：" + revision.reason)
+                        Text("后文原句：" + revision.evidence)
+                        if item.activeContextRevision != nil {
+                            Button("使用原始识别") { restore() }.disabled(!editingEnabled)
+                        }
+                    }.font(.caption).foregroundStyle(.secondary).textSelection(.enabled).padding(.top, 7)
+                }.font(.caption).tint(accent)
             }
         }
         .padding(16)
@@ -479,6 +534,6 @@ private struct EditSegmentView: View {
                     .disabled(english.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }.padding(27).frame(width: 560)
-        .onAppear { english = segment.english; chinese = segment.chinese }
+        .onAppear { english = segment.presentedEnglish; chinese = segment.presentedChinese }
     }
 }

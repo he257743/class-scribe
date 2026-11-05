@@ -11,10 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let model, model.busy else {
-            self.model?.persist()
-            return .terminateNow
-        }
+        guard let model else { return .terminateNow }
         guard !terminating else { return .terminateLater }
         terminating = true
         Task { await model.finishBeforeQuit(); sender.reply(toApplicationShouldTerminate: true) }

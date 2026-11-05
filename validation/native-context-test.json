@@ -1,0 +1,154 @@
+{
+  "actual_local_model_and_policy_used": true,
+  "all_passed": true,
+  "examples": [
+    {
+      "accepted_revisions": 1,
+      "displayed_chinese": "这个互斥锁 保护共享资源。",
+      "displayed_english": "This mutex protects the shared resource.",
+      "initial_chinese": "这个静音 X 保护共享资源。",
+      "later_english": "A mutex provides mutual exclusion. Only one thread can hold a mutex.",
+      "name": "misheard mutex",
+      "passed": true,
+      "reasons": [
+        "后文明确出现 mutex，按课程术语校订为“互斥锁”。"
+      ],
+      "replacements": [
+        {
+          "from": "mute X",
+          "to": "mutex"
+        }
+      ],
+      "seconds": 4.756311058998108,
+      "service_proposals": 1,
+      "source_english": "This mute X protects the shared resource."
+    },
+    {
+      "accepted_revisions": 1,
+      "displayed_chinese": "缓存存储常用数据。",
+      "displayed_english": "The cache stores frequently used data.",
+      "initial_chinese": "现金存储常用数据。",
+      "later_english": "The cache sits between the CPU and main memory.",
+      "name": "misheard cache",
+      "passed": true,
+      "reasons": [
+        "后文明确出现 cache，按课程术语校订为“缓存”。"
+      ],
+      "replacements": [
+        {
+          "from": "cash",
+          "to": "cache"
+        }
+      ],
+      "seconds": 4.998124957084656,
+      "service_proposals": 1,
+      "source_english": "The cash stores frequently used data."
+    },
+    {
+      "accepted_revisions": 1,
+      "displayed_chinese": "打开端口。",
+      "displayed_english": "Open the port.",
+      "initial_chinese": "打开港口。",
+      "later_english": "The TCP port is used by the server.",
+      "name": "network port sense",
+      "passed": true,
+      "reasons": [
+        "后文明确出现 port，按课程术语校订为“端口”。"
+      ],
+      "replacements": [],
+      "seconds": 4.3738250732421875,
+      "service_proposals": 1,
+      "source_english": "Open the port."
+    },
+    {
+      "accepted_revisions": 0,
+      "displayed_chinese": "我带了现金来买课本。",
+      "displayed_english": "I brought cash to buy the textbook.",
+      "initial_chinese": "我带了现金来买课本。",
+      "later_english": "We use this money to buy books.",
+      "name": "literal cash preserved",
+      "passed": true,
+      "reasons": [],
+      "replacements": [],
+      "seconds": 0.0018349885940551758,
+      "service_proposals": 0,
+      "source_english": "I brought cash to buy the textbook."
+    },
+    {
+      "accepted_revisions": 0,
+      "displayed_chinese": "我带了现金来买课本。",
+      "displayed_english": "I brought cash to buy the textbook.",
+      "initial_chinese": "我带了现金来买课本。",
+      "later_english": "Now turn to the cache between the CPU and main memory.",
+      "name": "literal cash before a cache topic",
+      "passed": true,
+      "reasons": [],
+      "replacements": [],
+      "seconds": 5.307181000709534,
+      "service_proposals": 0,
+      "source_english": "I brought cash to buy the textbook."
+    },
+    {
+      "accepted_revisions": 0,
+      "displayed_chinese": "船抵达港口。",
+      "displayed_english": "The ship arrived at the port.",
+      "initial_chinese": "船抵达港口。",
+      "later_english": "Now configure a TCP port on the server.",
+      "name": "harbour before a networking topic",
+      "passed": true,
+      "reasons": [],
+      "replacements": [],
+      "seconds": 4.134771943092346,
+      "service_proposals": 0,
+      "source_english": "The ship arrived at the port."
+    },
+    {
+      "accepted_revisions": 1,
+      "displayed_chinese": "临界区访问共享数据。",
+      "displayed_english": "A critical section accesses shared data.",
+      "initial_chinese": "关键部分访问共享数据。",
+      "later_english": "Only one thread may enter the critical section at a time.",
+      "name": "critical section sense",
+      "passed": true,
+      "reasons": [
+        "后文明确出现 critical section，按课程术语校订为“临界区”。"
+      ],
+      "replacements": [],
+      "seconds": 4.744355082511902,
+      "service_proposals": 1,
+      "source_english": "A critical section accesses shared data."
+    },
+    {
+      "accepted_revisions": 0,
+      "displayed_chinese": "互斥锁保护共享资源。",
+      "displayed_english": "A mutex protects the shared resource.",
+      "initial_chinese": "互斥锁保护共享资源。",
+      "later_english": "A mutex provides mutual exclusion.",
+      "name": "correct terminology preserved",
+      "passed": true,
+      "reasons": [],
+      "replacements": [],
+      "seconds": 0.0026559829711914062,
+      "service_proposals": 0,
+      "source_english": "A mutex protects the shared resource."
+    },
+    {
+      "displayed_chinese": "缓存存储常用数据。",
+      "displayed_english": "The cache stores frequently used data.",
+      "name": "actual application scheduler and save reload",
+      "original_preserved": true,
+      "passed": true,
+      "persistent_round_trip": true,
+      "seconds": 5.2234179973602295
+    }
+  ],
+  "input": "synthetic English ASR-text snapshots; not classroom audio",
+  "latency_scope": "local context request to validated revision; excludes microphone, ASR and UI rendering",
+  "microphone_used": false,
+  "model": "qwen3:1.7b",
+  "on_device_apple_translation_used_for_term_alignment": true,
+  "thinking_enabled": true,
+  "num_ctx": 4096,
+  "fixtures_used_during_development": true,
+  "independent_accuracy_benchmark": false
+}

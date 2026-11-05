@@ -59,11 +59,43 @@ final class AppModel: ObservableObject {
         didSet { preferences.set(liveChinesePreview, forKey: "liveChinesePreview") }
     }
     @Published var autoScroll = true
+    @Published var contextEnabled: Bool {
+        didSet {
+            preferences.set(contextEnabled, forKey: "contextEnabled")
+            if !contextEnabled {
+                cancelContextReview(); contextStatus = "上下文校对已关闭"
+                Task { await contextService.shutdown() }
+            } else { Task { await refreshContextAvailability() } }
+        }
+    }
+    @Published var contextModel: ContextModel {
+        didSet { preferences.set(contextModel.rawValue, forKey: "contextModel"); resetContextSettings() }
+    }
+    @Published var courseDomain: CourseDomain {
+        didSet { preferences.set(courseDomain.rawValue, forKey: "courseDomain"); cancelContextReview() }
+    }
+    @Published var courseSubject: String {
+        didSet { preferences.set(courseSubject, forKey: "courseSubject"); cancelContextReview() }
+    }
+    @Published var contextReady = false
+    @Published var contextPreparing = false
+    @Published var contextWorking = false
+    @Published var contextProgress: Double = 0
+    @Published var contextStatus = "上下文模型尚未准备"
     @Published var demoMode: Bool
     @Published var deletionCandidate: Lecture?
     let store: LectureStore?
     private let trashAction: LectureStore.TrashAction
     private let preferences: UserDefaults
+    private let contextService: any ContextReviewing
+    private var contextTimer: Task<Void, Never>?
+    private var contextTask: Task<Void, Never>?
+    private var contextPreparationTask: Task<Void, Never>?
+    private var contextEpoch = UUID()
+    private var lastContextFingerprint: String?
+    private var lastContextStarted = Date.distantPast
+    private var contextLectureID: UUID?
+    private let contextInterval: TimeInterval
 
     private var engine: SpeechRecording?
     private let engineFactory: () -> SpeechRecording
@@ -125,10 +157,20 @@ final class AppModel: ObservableObject {
          previewInterval: TimeInterval = 1.5, previewInitialDelay: TimeInterval = 0.6,
          engineFactory: @escaping () -> SpeechRecording = { LocalSpeechEngine() },
          microphoneAccess: (() async -> Bool)? = nil, recordingNow: @escaping () -> Date = Date.init,
-         trashAction: @escaping LectureStore.TrashAction = LectureStore.systemTrash) {
+         trashAction: @escaping LectureStore.TrashAction = LectureStore.systemTrash,
+         contextService: any ContextReviewing = LocalContextService(), contextInterval: TimeInterval = 8) {
         self.demoMode = demoMode
         self.trashAction = trashAction
         self.preferences = preferences
+        self.contextService = contextService
+        self.contextInterval = max(0.01, contextInterval)
+        self.contextEnabled = preferences.object(forKey: "contextEnabled") as? Bool ?? true
+        let choiceURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ClassScribe/ContextRuntime/selected-model.json")
+        let preparedChoice = (try? Data(contentsOf: choiceURL)).flatMap { try? JSONDecoder().decode(ContextModel.self, from: $0) }
+        self.contextModel = ContextModel(rawValue: preferences.string(forKey: "contextModel") ?? "") ?? preparedChoice ?? .light
+        self.courseDomain = CourseDomain(rawValue: preferences.string(forKey: "courseDomain") ?? "") ?? .computerScience
+        self.courseSubject = preferences.string(forKey: "courseSubject") ?? ""
         self.engineFactory = engineFactory
         self.microphoneAccess = microphoneAccess
         self.recordingNow = recordingNow
@@ -198,6 +240,7 @@ final class AppModel: ObservableObject {
         case .unsupported: translationStatus = "系统暂未提供中英翻译，请联网后重试检查"
         @unknown default: translationStatus = "无法检查翻译语言包"
         }
+        await refreshContextAvailability()
     }
 
     func prepareLanguages() {
@@ -315,7 +358,7 @@ final class AppModel: ObservableObject {
                 applied = job.isPreview ? $0.applyPreviewTranslation(translated, forSource: job.text) :
                     $0.applyTranslation(translated, forSource: job.text)
             }
-            if applied { persist(job.lectureID) }
+            if applied { persist(job.lectureID); scheduleContextReview(for: job.lectureID) }
         } catch {
             guard !Task.isCancelled, translationEpoch == epoch,
                   let latest = segment(lectureID: job.lectureID, segmentID: job.segmentID),
@@ -357,8 +400,7 @@ final class AppModel: ObservableObject {
         activeAudioFilename = keepAudio ? filename : nil
         let audioURL = keepAudio ? store.recordings.appendingPathComponent(filename) : nil
         let engine = engineFactory(); self.engine = engine
-        let words = contextualWords.components(separatedBy: CharacterSet(charactersIn: ",，\n"))
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.prefix(200)
+        let words = CourseGlossary.terms(domain: courseDomain, custom: contextualWords).map(\.english)
         do {
             try await engine.start(audioURL: audioURL, contextualWords: Array(words), offset: offset,
                 receive: { [weak self] update in
@@ -386,6 +428,9 @@ final class AppModel: ObservableObject {
             if let audioURL { try? FileManager.default.removeItem(at: audioURL) }
             generation = UUID(); level = 0
             phase = resuming ? .paused : .idle
+            if case ClassScribeError.speechAssetsUnavailable = error {
+                speechReady = false; speechStatus = "英语语音包需要重新准备"
+            }
             errorMessage = "无法开始听课：\(error.localizedDescription)"
         }
     }
@@ -454,6 +499,7 @@ final class AppModel: ObservableObject {
     }
 
     func prepareTranscription(for lecture: Lecture) {
+        cancelContextReview()
         cancelParagraphPreview()
         lastParagraphPreviewRequest = nil
         activeTranslationStyle = translationStyle
@@ -468,6 +514,7 @@ final class AppModel: ObservableObject {
             guard paragraphBuffer?.ingest(update, at: time) == true else { return }
             renderParagraphs(for: lectureID)
             if update.isFinal { persist(lectureID) }
+            scheduleContextReview(for: lectureID)
             return
         }
         guard let id = TranscriptTimeline.ingest(update, into: &lectures[index].segments),
@@ -484,12 +531,14 @@ final class AppModel: ObservableObject {
                 self.enqueue(lectureID, latest)
             }
         }
+        scheduleContextReview(for: lectureID)
     }
 
     func closeParagraphAfterPause(for lectureID: UUID, at time: Double) {
         guard paragraphBuffer?.closeAfterPause(at: time) == true else { return }
         renderParagraphs(for: lectureID)
         persist(lectureID)
+        scheduleContextReview(for: lectureID)
     }
 
     func finishTranscription(for lectureID: UUID) {
@@ -505,6 +554,7 @@ final class AppModel: ObservableObject {
         }
         paragraphBuffer = nil; paragraphBaseCount = 0
         activeLivePreview = false
+        scheduleContextReview(for: lectureID)
     }
 
     private func renderParagraphs(for lectureID: UUID) {
@@ -560,6 +610,7 @@ final class AppModel: ObservableObject {
 
     func newLecture() {
         guard !busy, !demoMode, deletionCandidate == nil else { return }
+        cancelContextReview()
         let lecture = Lecture.fresh(); lectures.insert(lecture, at: 0); selectedID = lecture.id
         persist(lecture.id)
     }
@@ -584,6 +635,7 @@ final class AppModel: ObservableObject {
             return
         }
         pendingJobs.removeAll { $0.lectureID == lecture.id }
+        if contextLectureID == lecture.id { cancelContextReview() }
         previewTask?.cancel(); previewTask = nil
         cancelParagraphPreview()
         lectures.remove(at: index)
@@ -594,6 +646,7 @@ final class AppModel: ObservableObject {
 
     func enterDemo() {
         guard !busy, !demoMode else { return }
+        cancelContextReview()
         for lecture in lectures { persist(lecture.id) }
         realLectures = lectures; realSelectedID = selectedID
         let example = AppModel(demoMode: true, preferences: preferences)
@@ -712,6 +765,141 @@ final class AppModel: ObservableObject {
             await withCheckedContinuation { transitionWaiters.append($0) }
         }
         if phase == .listening || phase == .paused { await stop() }
+        contextPreparationTask?.cancel()
+        await contextPreparationTask?.value
+        cancelContextReview()
+        await contextService.shutdown()
         for lecture in lectures { persist(lecture.id) }
+    }
+
+    func refreshContextAvailability() async {
+        guard !demoMode, contextEnabled, !contextPreparing else { return }
+        let selected = contextModel
+        do {
+            let status = try await contextService.availability(for: selected)
+            guard contextModel == selected, contextEnabled else { return }
+            contextReady = status == .ready
+            contextStatus = contextReady ? "上下文校对已就绪 · 本机处理" : "需要准备上下文模型"
+        } catch {
+            contextReady = false; contextStatus = "上下文模型未就绪：\(error.localizedDescription)"
+        }
+    }
+
+    func prepareContextModel() {
+        guard !demoMode, !busy, !contextPreparing else { return }
+        contextPreparing = true; contextReady = false; contextProgress = 0
+        let selected = contextModel
+        contextPreparationTask = Task {
+            do {
+                try await contextService.prepare(model: selected) { [weak self] progress, status in
+                    await self?.setContextProgress(progress, status: status)
+                }
+                contextReady = contextModel == selected
+                contextStatus = "上下文校对已就绪 · 本机处理"
+            } catch {
+                contextStatus = Task.isCancelled ? "模型准备已取消，可稍后继续" : "上下文模型准备失败：\(error.localizedDescription)"
+            }
+            contextPreparing = false
+            contextPreparationTask = nil
+        }
+    }
+
+    func cancelContextPreparation() { contextPreparationTask?.cancel() }
+
+    func retryContextReview() {
+        guard let id = selectedID else { return }
+        cancelContextReview()
+        Task {
+            await refreshContextAvailability()
+            scheduleContextReview(for: id)
+        }
+    }
+
+    private func setContextProgress(_ progress: Double, status: String) {
+        guard contextPreparing else { return }
+        contextProgress = progress; contextStatus = status
+    }
+
+    private func resetContextSettings() {
+        cancelContextReview(); contextReady = false
+        Task { await refreshContextAvailability() }
+    }
+
+    private func cancelContextReview() {
+        contextEpoch = UUID()
+        contextTimer?.cancel(); contextTimer = nil
+        contextTask?.cancel(); contextTask = nil
+        contextWorking = false; lastContextFingerprint = nil; contextLectureID = nil
+    }
+
+    func scheduleContextReview(for lectureID: UUID) {
+        guard contextEnabled, contextReady, !demoMode,
+              let lecture = lectures.first(where: { $0.id == lectureID }),
+              let window = ContextReviewWindow.make(lecture: lecture, domain: courseDomain,
+                custom: contextualWords, subject: courseSubject, model: contextModel),
+              window.fingerprint != lastContextFingerprint else { return }
+        contextLectureID = lectureID
+        guard contextTimer == nil, contextTask == nil else { return }
+        let epoch = contextEpoch
+        let delay = max(0.1, contextInterval - Date().timeIntervalSince(lastContextStarted))
+        contextTimer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self, self.contextEpoch == epoch else { return }
+            self.contextTimer = nil
+            self.beginContextReview(for: lectureID)
+        }
+    }
+
+    func beginContextReview(for lectureID: UUID) {
+        guard contextEnabled, contextReady, !demoMode, contextTask == nil,
+              let lecture = lectures.first(where: { $0.id == lectureID }),
+              let window = ContextReviewWindow.make(lecture: lecture, domain: courseDomain,
+                custom: contextualWords, subject: courseSubject, model: contextModel),
+              window.fingerprint != lastContextFingerprint else { return }
+        let epoch = contextEpoch
+        contextLectureID = lectureID; lastContextFingerprint = window.fingerprint
+        lastContextStarted = Date(); contextWorking = true
+        contextStatus = "正在结合后文校对 · 原始识别已保留"
+        contextTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.contextEpoch == epoch {
+                    self.contextTask = nil; self.contextWorking = false
+                    self.scheduleContextReview(for: lectureID)
+                }
+            }
+            do {
+                let patches = try await self.contextService.review(window)
+                guard !Task.isCancelled, self.contextEpoch == epoch, self.contextEnabled else { return }
+                let applied = self.applyContextPatches(patches, window: window)
+                self.contextStatus = applied > 0 ? "已结合后文更新校订 · 可查看原始识别" : "上下文校对已就绪 · 本机处理"
+            } catch {
+                guard !Task.isCancelled, self.contextEpoch == epoch else { return }
+                self.contextStatus = "本次校对未完成，原始识别已保留"
+                self.lastContextStarted = Date().addingTimeInterval(20)
+            }
+        }
+    }
+
+    @discardableResult
+    func applyContextPatches(_ patches: [ContextReviewPatch], window: ContextReviewWindow) -> Int {
+        guard let lecture = lectures.first(where: { $0.id == window.lectureID }) else { return 0 }
+        var applied = 0
+        for patch in patches.prefix(3) {
+            guard let revision = ContextReviewPolicy.revision(patch, window: window) else { continue }
+            let entry = window.entries[patch.index]
+            guard let index = lecture.segments.firstIndex(where: { $0.id == entry.id }),
+                  lecture.segments[index].english == entry.english, lecture.segments[index].chinese == entry.chinese,
+                  lecture.segments.dropFirst(index + 1).contains(where: {
+                      ContextReviewPolicy.normalized($0.english).contains(ContextReviewPolicy.normalized(revision.evidence))
+                  }) else { continue }
+            // Unrelated volatile text may be revised while inference runs. Only
+            // the target and the actually quoted later evidence must still match.
+            changeSegment(lectureID: window.lectureID, segmentID: entry.id) {
+                if $0.applyContextRevision(revision, expectedPrevious: entry.revision) { applied += 1 }
+            }
+        }
+        if applied > 0 { persist(window.lectureID) }
+        return applied
     }
 }

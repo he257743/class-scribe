@@ -1,10 +1,12 @@
 # 验证范围
 
-以下记录基于应用 1.4.0，记录本地检查的范围和复现方法。具体结果见 `validation/summary.json`。
+以下记录基于应用 1.5.0，记录本地检查的范围和复现方法。具体结果见 `validation/summary.json`。
 
-2026 年 11 月 5 日，本机重新构建、签名与 ZIP 检查通过；五组回归检查共 **124 项通过**：转录与导出 16、删除 21、段落 30、实时预览 30、暂停恢复 27。脚本额外执行了 DOCX 导出检查。
+2026 年 11 月 5 日，本机重新构建、签名与 ZIP 检查通过；六组回归检查共 **168 项通过**：转录与导出 16、删除 21、段落 30、实时预览 30、暂停恢复 27、上下文校订 44。脚本额外执行了 DOCX 导出检查。
 
-同日，两项可选原生管线也已通过。对应报告为 `validation/native-live-preview-test.json` 和 `validation/native-paragraph-test.json`。所有输入均为脚本化文字或本机合成英语，不是私人课堂录音。
+同日，Apple 两项可选原生管线也已通过。对应报告为 `validation/native-live-preview-test.json` 和 `validation/native-paragraph-test.json`。所有输入均为脚本化文字或本机合成英语，不是私人课堂录音。
+
+实际本机 Qwen3 `qwen3:1.7b`、Apple 词语翻译和修订验证流程的 **8 个开发样例**均符合预期，另通过真实应用调度、保存和重新加载检查。样例覆盖 mutex / cache 误听、port / critical section 词义，以及现金、港口在话题切换时应保留原义的反例。报告见 `validation/native-context-test.json`。这些样例参与了开发调试，属于回归样例，不是独立准确率评估集。
 
 ## 分层验证
 
@@ -16,15 +18,20 @@
 | 段落 | `Tests/ParagraphTests.swift` | 分段、停顿、定稿、原始片段保留、继续听课与旧记录兼容 |
 | 预览 | `Tests/LivePreviewTests.swift` | 节流、请求合并、原文修订、定稿优先、取消及迟到回复保护 |
 | 暂停 | `Tests/PauseTests.swift` | 模拟收音停止、排除暂停间隔、恢复衔接、权限与启动失败、退出等待 |
+| 后文校对 | `Tests/ContextReviewTests.swift` | 局部替换、后文引用、原文保留、人工修改、过期回复、旧记录兼容与导出 |
 | ZIP | `python3 Tools/VerifyPackage.py dist/听课译记.zip` | 归档结构、UTF-8 文件名、图标和可执行权限 |
 | 原生预览（可选） | `Tests/NativeLivePreviewTest.swift` | 脚本化英文识别文本经过真实 Apple 翻译与应用调度流程 |
 | 原生音频管线（可选） | `Tests/NativeParagraphTest.swift` | 本机合成英语文件经过真实识别、应用段落队列、翻译与保存恢复 |
+
+可选本机模型入口为 `Tests/NativeContextReviewTest.swift`，需要预先准备较大模型；不开启麦克风。
 
 逻辑测试使用临时存储和合成内容；暂停测试注入录音后端和可控时钟。两项可选的原生管线均不启用麦克风，不读取私人课堂录音。
 
 ## 延迟数字的解释
 
 原生预览报告中的时间范围是“识别文字输入到中文写入模型状态”，不包含麦克风、音频采集和语音识别，也不等于用户屏幕上实际完成绘制的时间。它只能帮助验证预览流程，不能作为课堂端到端延迟宣传。
+
+上下文校对报告中的耗时从提交合成识别文字窗口开始，到校订通过验证为止。此次有判断任务的开发样例约为 4.1–5.3 秒（无候选的两个保留样例不调用模型）；应用调度与保存样例约 5.2 秒。这不包含获取后文所需的等待、麦克风、语音识别或屏幕绘制，不能当作语音到中文的端到端延迟，也不能承诺其他机器或负载下相同耗时。
 
 ## GitHub Actions
 
@@ -54,6 +61,12 @@ zsh Tests/run-native.sh
 ```
 
 原生语言资产由 macOS 管理，可能受系统支持范围、语言包安装状态和当前机器环境影响。CI 只执行构建、逻辑回归与打包检查，不自动下载语言包或启动麦克风。
+
+已额外准备 Qwen3 较大模型后，可运行：
+
+```sh
+zsh Tests/run-context-native.sh
+```
 
 ## 官方技术依据
 

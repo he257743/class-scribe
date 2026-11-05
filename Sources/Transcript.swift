@@ -37,6 +37,26 @@ struct TranscriptSegment: Identifiable, Codable, Equatable {
     var recognitionParts: [RecognitionPart]?
     var translatedSource: String?
     var translationIsPreview: Bool?
+    var contextRevisions: [ContextRevision]?
+
+    var activeContextRevision: ContextRevision? {
+        guard !edited, translationState != .edited,
+              let last = contextRevisions?.last, last.sourceEnglish == english else { return nil }
+        return last
+    }
+    var presentedEnglish: String { activeContextRevision?.english ?? english }
+    var presentedChinese: String { activeContextRevision?.chinese ?? chinese }
+
+    @discardableResult
+    mutating func applyContextRevision(_ revision: ContextRevision, expectedPrevious: ContextRevision?) -> Bool {
+        guard !edited, translationState != .edited, !isCollectingParagraph,
+              english == revision.sourceEnglish, activeContextRevision == expectedPrevious else { return false }
+        if let last = activeContextRevision, last.english == revision.english && last.chinese == revision.chinese { return false }
+        var history = contextRevisions ?? []
+        history.append(revision)
+        contextRevisions = Array(history.suffix(8))
+        return true
+    }
 
     var isCollectingParagraph: Bool { paragraphComplete == false }
     var hasPreviewTranslation: Bool { !chinese.isEmpty && translationIsPreview == true }
@@ -177,6 +197,7 @@ struct ParagraphBuffer {
                 confidence: group.compactMap(\.confidence).min(), paragraphComplete: complete,
                 recognitionParts: group.map { RecognitionPart(start: $0.start, end: $0.end,
                     text: $0.english, isFinal: $0.isFinal, confidence: $0.confidence) })
+            row.contextRevisions = old?.contextRevisions
             if let old, old.english == text {
                 row.chinese = old.chinese; row.translationState = old.translationState; row.edited = old.edited
                 row.translatedSource = old.translatedSource; row.translationIsPreview = old.translationIsPreview
@@ -316,12 +337,18 @@ enum TranscriptExport {
         var lines = [lecture.title, "英文转录与中文机器翻译", "草稿及低置信度片段需回听核对；未标注处也可能有误。", ""]
         for item in lecture.segments {
             lines += ["[\(item.timeLabel)]\(item.isFinal ? "" : " 〔未定稿〕")\(item.needsReview ? " 〔建议回听〕" : "")",
-                "英文：\(item.english)", "中文：\(translationText(item))", ""]
+                "英文：\(item.presentedEnglish)", "中文：\(translationText(item))"]
+            if let revision = item.activeContextRevision {
+                lines += ["原始识别：" + revision.sourceEnglish, "初始译文：" + revision.sourceChinese,
+                    "校订依据：" + revision.reason, "后文原句：" + revision.evidence]
+            }
+            lines.append("")
         }
         return lines.joined(separator: "\n")
     }
 
     static func translationText(_ item: TranscriptSegment) -> String {
+        if let revision = item.activeContextRevision { return "〔上下文校订〕" + revision.chinese }
         if !item.chinese.isEmpty {
             return (item.hasPreviewTranslation ? "〔中文预览，待整段定稿〕" : "") + item.chinese
         }
@@ -332,7 +359,7 @@ enum TranscriptExport {
         lecture.segments.enumerated().map { i, item in
             let end = max(item.start + 0.05, item.end)
             let status = item.isFinal ? "" : "〔未定稿〕"
-            let source = item.english.components(separatedBy: .newlines).filter { !$0.isEmpty }.joined(separator: "\n")
+            let source = item.presentedEnglish.components(separatedBy: .newlines).filter { !$0.isEmpty }.joined(separator: "\n")
             let target = translationText(item).components(separatedBy: .newlines).filter { !$0.isEmpty }.joined(separator: "\n")
             return "\(i + 1)\n\(srtTime(item.start)) --> \(srtTime(end))\n\(status)\(source)\n\(target)\n"
         }.joined(separator: "\n")
@@ -371,8 +398,13 @@ enum TranscriptExport {
         for (i, item) in lecture.segments.enumerated() {
             body += paragraph("分段 \(i + 1)", style: "Heading1")
             body += paragraph(item.timeLabel + (item.isFinal ? "" : " 〔未定稿〕") + (item.needsReview ? " 〔建议回听〕" : ""))
-            body += paragraph("英文：" + item.english)
+            body += paragraph("英文：" + item.presentedEnglish)
             body += paragraph("中文：" + translationText(item))
+            if let revision = item.activeContextRevision {
+                body += paragraph("原始识别：" + revision.sourceEnglish)
+                if !revision.sourceChinese.isEmpty { body += paragraph("初始译文：" + revision.sourceChinese) }
+                body += paragraph("校订依据：" + revision.reason + "\n后文原句：" + revision.evidence)
+            }
         }
         try write("[Content_Types].xml", """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>

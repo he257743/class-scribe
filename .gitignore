@@ -35,8 +35,13 @@ user-data/
 STATE.json
 IMPLEMENTATION.md
 
-# Models and development environments (not needed by this native app)
+# Optional local model/runtime downloads and development environments
 models/
+ContextModels/
+ContextRuntime/
+.ollama/
+*.gguf
+*.tgz
 *.safetensors
 *.npz
 .venv/

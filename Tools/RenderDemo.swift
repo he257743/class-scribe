@@ -14,6 +14,17 @@ import SwiftUI
         defer { preferences.removePersistentDomain(forName: suite) }
         let model = AppModel(demoMode: true, preferences: preferences)
         if !model.lectures.isEmpty {
+            model.lectures[0].title = "操作系统 · 合成校订演示"
+            let corrected = model.lectures[0].segments[0]
+            model.lectures[0].segments[0].english = corrected.english.replacingOccurrences(of: "A mutex", with: "A mute X")
+            model.lectures[0].segments[0].chinese = corrected.chinese.replacingOccurrences(of: "互斥锁", with: "静音 X")
+            let raw = model.lectures[0].segments[0]
+            model.lectures[0].segments[0].contextRevisions = [ContextRevision(sourceEnglish: raw.english,
+                sourceChinese: raw.chinese, english: corrected.english, chinese: corrected.chinese,
+                reason: "合成示例：后文明确说明 mutex 指互斥锁。", evidence: "A mutex provides mutual exclusion.",
+                model: ContextModel.larger.rawValue)]
+            model.lectures[0].segments[1].english = "A mutex provides mutual exclusion. Other threads wait until the lock is released."
+            model.lectures[0].segments[1].chinese = "互斥锁提供互斥。其他线程会等待锁释放。"
             model.lectures[0].created = Date(timeIntervalSince1970: 1_767_225_600)
         }
         let view = ContentView(model: model)

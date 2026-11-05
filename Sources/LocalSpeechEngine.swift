@@ -5,7 +5,13 @@ import CoreMedia
 
 enum ClassScribeError: LocalizedError {
     case message(String)
-    var errorDescription: String? { if case .message(let value) = self { return value }; return nil }
+    case speechAssetsUnavailable
+    var errorDescription: String? {
+        switch self {
+        case .message(let value): return value
+        case .speechAssetsUnavailable: return "请先点击“准备语言包”，安装英语识别包。"
+        }
+    }
 }
 
 enum SpeechAssets {
@@ -23,6 +29,7 @@ enum SpeechAssets {
 
     static func status() async throws -> AssetInventory.Status {
         let module = try await englishModule()
+        if let locale = module.selectedLocales.first { try await AssetInventory.reserve(locale: locale) }
         return await AssetInventory.status(forModules: [module])
     }
 
@@ -204,8 +211,9 @@ final class LocalSpeechEngine: SpeechRecording, @unchecked Sendable {
                meter: @escaping @Sendable (Double) -> Void,
                failure: @escaping @Sendable (String) -> Void) async throws {
         let transcriber = try await SpeechAssets.englishModule()
+        if let locale = transcriber.selectedLocales.first { try await AssetInventory.reserve(locale: locale) }
         guard await AssetInventory.status(forModules: [transcriber]) == .installed else {
-            throw ClassScribeError.message("请先点击“准备语言包”，安装英语识别包。")
+            throw ClassScribeError.speechAssetsUnavailable
         }
         guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
             throw ClassScribeError.message("系统无法提供识别所需的音频格式。")

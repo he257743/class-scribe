@@ -1,18 +1,18 @@
 {
-  "actual_app_translation_queue_used" : true,
-  "asr_final_results" : 3,
-  "input" : "locally synthesized English audio file",
-  "microphone_used" : false,
-  "paragraphs" : [
+  "actual_app_translation_queue_used": true,
+  "asr_final_results": 3,
+  "input": "locally synthesized English audio file",
+  "microphone_used": false,
+  "paragraphs": [
     {
-      "chinese" : "关键部分是访问共享资源的程序的一部分。 锁确保一次只有一个线程进入关键部分。 其他线程必须等到锁被释放。",
-      "end" : 11.880000000000001,
-      "english" : "A critical section is a part of a program that accesses a shared resource. A lock makes sure that only one thread enters the critical section at a time. Other threads must wait until the lock is released.",
-      "source_parts" : 3,
-      "start" : 0
+      "chinese": "关键部分是访问共享资源的程序的一部分。 锁确保一次只有一个线程进入关键部分。 其他线程必须等到锁被释放。",
+      "end": 11.88,
+      "english": "A critical section is a part of a program that accesses a shared resource. A lock makes sure that only one thread enters the critical section at a time. Other threads must wait until the lock is released.",
+      "source_parts": 3,
+      "start": 0
     }
   ],
-  "realtime_microphone_tested" : false,
-  "round_trip_preserves_transcript" : true,
-  "status" : "pass"
+  "realtime_microphone_tested": false,
+  "round_trip_preserves_transcript": true,
+  "status": "pass"
 }

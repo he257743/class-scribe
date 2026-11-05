@@ -9,12 +9,14 @@ mkdir -p "$TASK_CACHE" "$TASK_ROOT/build"
     'A critical section is a part of a program that accesses a shared resource. A lock makes sure that only one thread enters the critical section at a time. Other threads must wait until the lock is released.'
 xcrun swiftc -swift-version 5 -O -parse-as-library -module-cache-path "$TASK_CACHE" \
     -target arm64-apple-macos26.0 "$TASK_ROOT/Sources/Transcript.swift" \
+    "$TASK_ROOT/Sources/ContextReview.swift" "$TASK_ROOT/Sources/LocalContextService.swift" \
     "$TASK_ROOT/Sources/LocalSpeechEngine.swift" "$TASK_ROOT/Sources/AppModel.swift" \
     "$TASK_ROOT/Tests/NativeLivePreviewTest.swift" -Xlinker -sectcreate -Xlinker __TEXT \
     -Xlinker __info_plist -Xlinker "$TASK_ROOT/Info.plist" -o "$TASK_ROOT/build/native-live-preview-test"
 "$TASK_ROOT/build/native-live-preview-test" "$TASK_ROOT/build/native-live-preview-test.json"
 xcrun swiftc -swift-version 5 -O -parse-as-library -module-cache-path "$TASK_CACHE" \
     -target arm64-apple-macos26.0 "$TASK_ROOT/Sources/Transcript.swift" \
+    "$TASK_ROOT/Sources/ContextReview.swift" "$TASK_ROOT/Sources/LocalContextService.swift" \
     "$TASK_ROOT/Sources/LocalSpeechEngine.swift" "$TASK_ROOT/Sources/AppModel.swift" \
     "$TASK_ROOT/Tests/NativeParagraphTest.swift" -Xlinker -sectcreate -Xlinker __TEXT \
     -Xlinker __info_plist -Xlinker "$TASK_ROOT/Info.plist" -o "$TASK_ROOT/build/native-paragraph-test"

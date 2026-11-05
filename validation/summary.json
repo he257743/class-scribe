@@ -1,6 +1,6 @@
 {
   "checked_on": "2026-11-05",
-  "app_version": "1.4.0",
+  "app_version": "1.5.0",
   "environment": {
     "architecture": "arm64",
     "macos": "26.4.1",
@@ -16,7 +16,8 @@
     "paragraphs": 30,
     "live_preview": 30,
     "pause": 27,
-    "total": 124
+    "total": 168,
+    "context_review": 44
   },
   "regression_data": "temporary fixtures; injected recording backend; no microphone",
   "native_preview": "pass; scripted ASR text through actual TranslationSession and application queue",
@@ -25,5 +26,10 @@
   "real_classroom_accuracy_evaluated": false,
   "real_microphone_pause_evaluated": false,
   "long_duration_classroom_stability_evaluated": false,
-  "apple_notarized": false
+  "apple_notarized": false,
+  "native_context_review": "pass; 8 synthetic development examples plus actual AppModel scheduler and save/reload; actual local qwen3:1.7b and Apple term translation",
+  "context_model_thinking_enabled": true,
+  "context_fixtures_used_during_development": true,
+  "independent_context_accuracy_benchmark": false,
+  "context_service_owned_start_and_shutdown": "pass; repeated real-model fixtures after stopping separately started test server; no owned process remained"
 }
