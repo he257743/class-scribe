@@ -1,0 +1,41 @@
+{
+  "app_version": "1.7.1",
+  "checked_on": "2026-11-10",
+  "environment": {
+    "macos": "27.2",
+    "architecture": "arm64",
+    "chip": "Apple M6",
+    "memory_gb": 24,
+    "swift": "6.4.2",
+    "macos_sdk": "27.0"
+  },
+  "reproduction": {
+    "input": "synthetic PCM; no microphone",
+    "float32_direct": "SIGTRAP in AnalyzerInput.data(from:)",
+    "float32_with_excess_capacity": "SIGTRAP",
+    "float32_resampled_from_48khz": "SIGTRAP",
+    "float32_after_audio_file_write": "SIGTRAP",
+    "int16_direct": "pass",
+    "int16_resampled_from_48khz": "pass",
+    "int16_with_excess_capacity": "pass"
+  },
+  "fix": {
+    "capture_stream": "CapturedAudio, independent of Apple Speech",
+    "qwen_audio": "16kHz mono Float32, valid frames only, direct to anonymous pipe",
+    "apple_audio": "supported Int16 negotiation and pre-construction guard on macOS 27",
+    "models_redownloaded": false,
+    "user_transcript_format_changed": false
+  },
+  "regression_checks": {
+    "swift_existing": 228,
+    "swift_audio_capture": 14,
+    "python_worker": 25,
+    "total": 267
+  },
+  "real_microphone_used": false,
+  "long_classroom_session_tested": false,
+  "application_build": "pass",
+  "ad_hoc_signature": "pass",
+  "zip_validation": "pass",
+  "installed_app_launch": "pass; 1.7.1 (11), application stayed running after relaunch"
+}

@@ -1,18 +1,17 @@
 import Foundation
 import AVFoundation
-import Speech
 import CoreMedia
 
 // Inject a file at microphone pace into the real engine. Never opens an input device.
 final class FileAudioCapture: AudioCapturing, @unchecked Sendable {
     let url: URL
     private var task: Task<Void, Never>?
-    private var sink: AsyncStream<AnalyzerInput>.Continuation?
+    private var sink: AsyncStream<CapturedAudio>.Continuation?
     private(set) var began: Date?
     private(set) var ended: Date?
     private(set) var duration: Double = 0
     init(url: URL) { self.url = url }
-    func start(format: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation,
+    func start(format: AVAudioFormat, continuation: AsyncStream<CapturedAudio>.Continuation,
                audioURL: URL?, meter: @escaping @Sendable (Double) -> Void,
                failure: @escaping @Sendable (String) -> Void) throws {
         let file = try AVAudioFile(forReading: url)

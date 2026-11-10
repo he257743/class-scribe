@@ -1,6 +1,5 @@
 import Foundation
 import AVFoundation
-import Speech
 import Darwin
 
 enum SpeechBackend: String, CaseIterable, Sendable {
@@ -233,17 +232,25 @@ actor QwenSpeechEngine: SpeechRecording {
             try await ready.wait()
             try Task.checkCancellation()
             let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
-            let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream(bufferingPolicy: .bufferingOldest(128))
+            let (stream, continuation) = AsyncStream<CapturedAudio>.makeStream(bufferingPolicy: .bufferingOldest(128))
             inputTask = Task { [self] in
                 do {
                     for await input in stream {
-                        guard let samples = input.buffer.floatChannelData?[0] else { throw ClassScribeError.message("无法读取千问识别音频缓冲。") }
-                        try process.write(Data(bytes: samples, count: Int(input.buffer.frameLength) * MemoryLayout<Float>.size))
+                        try process.write(Self.pcmData(from: input))
                     }
                 } catch { if !stopping { problem = error.localizedDescription; failure(error.localizedDescription) } }
             }
             try capture.start(format: format, continuation: continuation, audioURL: audioURL, meter: meter, failure: failure)
         } catch { stopping = true; process.terminate(); await resultsTask?.value; throw error }
+    }
+    static func pcmData(from input: CapturedAudio) throws -> Data {
+        let buffer = input.buffer
+        guard buffer.format.commonFormat == .pcmFormatFloat32,
+              buffer.format.sampleRate == 16000, buffer.format.channelCount == 1,
+              buffer.stride == 1, let samples = buffer.floatChannelData?[0] else {
+            throw ClassScribeError.message("无法读取千问识别所需的 16kHz 单声道浮点音频。")
+        }
+        return Data(bytes: samples, count: Int(buffer.frameLength) * MemoryLayout<Float>.size)
     }
     func stop() async -> String? {
         stopping = true

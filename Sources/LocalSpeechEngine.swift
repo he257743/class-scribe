@@ -58,8 +58,37 @@ enum SpeechAssets {
     }
 }
 
+// The producer owns each buffer until yield, then never mutates it again.
+// Keep raw capture independent of Speech: Qwen consumes Float32 PCM directly.
+struct CapturedAudio: @unchecked Sendable {
+    let buffer: AVAudioPCMBuffer
+    let bufferStartTime: CMTime
+}
+
+enum AppleAudioInput {
+    static func format(preferred: AVAudioFormat, supported: [AVAudioFormat]) throws -> AVAudioFormat {
+        if #available(macOS 27, *) {
+            // On macOS 27.2, AnalyzerInput's Float32 bridge traps in data(from:).
+            // Negotiate a module-supported Int16 format before capture starts.
+            if preferred.commonFormat == .pcmFormatInt16 { return preferred }
+            guard let safe = supported.first(where: { $0.commonFormat == .pcmFormatInt16 }) else {
+                throw ClassScribeError.message("系统暂未提供兼容的苹果识别音频格式，请在设置中切换千问识别。")
+            }
+            return safe
+        }
+        return preferred
+    }
+
+    static func make(_ audio: CapturedAudio) throws -> AnalyzerInput {
+        if #available(macOS 27, *), audio.buffer.format.commonFormat != .pcmFormatInt16 {
+            throw ClassScribeError.message("苹果识别收到不兼容的音频格式，已停止收音。请切换千问识别后重试。")
+        }
+        return AnalyzerInput(buffer: audio.buffer, bufferStartTime: audio.bufferStartTime)
+    }
+}
+
 protocol AudioCapturing: AnyObject {
-    func start(format: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation,
+    func start(format: AVAudioFormat, continuation: AsyncStream<CapturedAudio>.Continuation,
                audioURL: URL?, meter: @escaping @Sendable (Double) -> Void,
                failure: @escaping @Sendable (String) -> Void) throws
     func stop() async
@@ -75,11 +104,11 @@ final class MicrophoneCapture: AudioCapturing, @unchecked Sendable {
     private var tapInstalled = false
     private var converter: AVAudioConverter?
     private var writer: AVAudioFile?
-    private var continuation: AsyncStream<AnalyzerInput>.Continuation?
+    private var continuation: AsyncStream<CapturedAudio>.Continuation?
     private var position: Int64 = 0
     private var lastMeter = Date.distantPast
 
-    func start(format: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation,
+    func start(format: AVAudioFormat, continuation: AsyncStream<CapturedAudio>.Continuation,
                audioURL: URL?, meter: @escaping @Sendable (Double) -> Void,
                failure: @escaping @Sendable (String) -> Void) throws {
         let input = engine.inputNode
@@ -133,7 +162,7 @@ final class MicrophoneCapture: AudioCapturing, @unchecked Sendable {
                     try self.writer?.write(from: output)
                     let time = CMTime(value: self.position, timescale: Int32(format.sampleRate.rounded()))
                     self.position += Int64(output.frameLength)
-                    let yield = continuation.yield(AnalyzerInput(buffer: output, bufferStartTime: time))
+                    let yield = continuation.yield(CapturedAudio(buffer: output, bufferStartTime: time))
                     if case .dropped = yield {
                         throw ClassScribeError.message("识别积压过多，已停止以避免静默漏字。原音已保存，可稍后回听。")
                     }
@@ -225,9 +254,11 @@ final class LocalSpeechEngine: SpeechRecording, @unchecked Sendable {
         guard await AssetInventory.status(forModules: [transcriber]) == .installed else {
             throw ClassScribeError.speechAssetsUnavailable
         }
-        guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+        guard let preferred = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
             throw ClassScribeError.message("系统无法提供识别所需的音频格式。")
         }
+        let format = try AppleAudioInput.format(preferred: preferred,
+            supported: await transcriber.availableCompatibleAudioFormats)
         let analyzer = SpeechAnalyzer(modules: [transcriber],
             options: .init(priority: .userInitiated, modelRetention: .whileInUse))
         self.analyzer = analyzer
@@ -237,7 +268,7 @@ final class LocalSpeechEngine: SpeechRecording, @unchecked Sendable {
             try await analyzer.setContext(context)
         }
         try await analyzer.prepareToAnalyze(in: format)
-        let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream(bufferingPolicy: .bufferingOldest(128))
+        let (stream, continuation) = AsyncStream<CapturedAudio>.makeStream(bufferingPolicy: .bufferingOldest(128))
         resultsTask = Task {
             do {
                 for try await result in transcriber.results {
@@ -255,7 +286,7 @@ final class LocalSpeechEngine: SpeechRecording, @unchecked Sendable {
             }
         }
         inputTask = Task {
-            do { try await analyzer.start(inputSequence: stream) }
+            do { try await analyzer.start(inputSequence: stream.map { try AppleAudioInput.make($0) }) }
             catch { if !Task.isCancelled { failure("音频分析失败：\(error.localizedDescription)") } }
         }
         do { try capture.start(format: format, continuation: continuation, audioURL: audioURL, meter: meter, failure: failure) }

@@ -13,7 +13,7 @@ TASK_SOURCES=(
   "$TASK_ROOT/Sources/LocalContextService.swift"
   "$TASK_ROOT/Sources/AppModel.swift"
 )
-for TASK_SUITE in Transcript Deletion Paragraph LivePreview Pause ContextReview SpeechBackend PromptEcho Repetition QwenWindow; do
+for TASK_SUITE in Transcript Deletion Paragraph LivePreview Pause ContextReview SpeechBackend PromptEcho Repetition QwenWindow AudioCapture; do
   TASK_TEST_BINARY="$TASK_ROOT/build/${TASK_SUITE}-tests"
   xcrun swiftc -swift-version 5 -O -parse-as-library -module-cache-path "$TASK_CACHE" \
     -target arm64-apple-macos26.0 "${TASK_SOURCES[@]}" \
